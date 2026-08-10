@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 struct SettingsView: View {
     @Environment(AppStore.self) private var store
     @Environment(Preferences.self) private var preferences
+    @Environment(AICoach.self) private var coach
     @Environment(\.l10n) private var t
 
     @State private var newWeight = ""
@@ -31,6 +32,7 @@ struct SettingsView: View {
 
             SectionHeader(title: t.sectionAppearance)
             appearanceCard
+            aiCard
 
             SectionHeader(title: t.sectionData)
             dataCard
@@ -297,6 +299,25 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.segmented)
             }
+        }
+        .cardStyle()
+    }
+
+    private var aiCard: some View {
+        @Bindable var coach = coach
+
+        return VStack(alignment: .leading, spacing: 10) {
+            Toggle(isOn: $coach.isEnabled) {
+                Text(t.aiSettingsLabel)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(Palette.ink)
+            }
+            .tint(Palette.green)
+            .disabled(!coach.status.isReady)
+
+            Text(coach.unsupportedReason(t) ?? t.aiSettingsHint)
+                .font(.caption2)
+                .foregroundStyle(Palette.inkFaint)
         }
         .cardStyle()
     }

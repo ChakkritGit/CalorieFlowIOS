@@ -4,12 +4,14 @@ import SwiftUI
 struct CalorieFlowApp: App {
     @State private var store = AppStore()
     @State private var preferences = Preferences()
+    @State private var coach = AICoach()
 
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environment(store)
                 .environment(preferences)
+                .environment(coach)
                 .environment(\.l10n, preferences.strings)
                 .environment(\.locale, preferences.language.locale)
                 .tint(Palette.green)

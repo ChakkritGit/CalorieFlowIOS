@@ -3,6 +3,7 @@ import Charts
 
 struct StatsView: View {
     @Environment(AppStore.self) private var store
+    @Environment(AICoach.self) private var coach
     @Environment(\.l10n) private var t
 
     private var avgCalIsOver: Bool { store.weeklyAverageCalories > store.dailyTarget }
@@ -10,6 +11,13 @@ struct StatsView: View {
 
     var body: some View {
         ScreenScroll(title: t.statsTitle) {
+            CoachCard(
+                title: t.aiWeeklyTitle,
+                icon: "chart.line.text.clipboard",
+                accent: Palette.blue,
+                generate: { await coach.weeklySummary(store.adviceContext, t) }
+            )
+
             chartCard(
                 title: t.weeklyCalories,
                 icon: nil,

@@ -262,4 +262,114 @@ struct L10n {
     var wrappedFoodsLogged: String { s("อาหารที่บันทึก", "MEALS LOGGED") }
     var wrappedTotalWater: String { s("ปริมาณน้ำรวม", "TOTAL WATER") }
     func wrappedItems(_ count: Int) -> String { s("\(count) รายการ", "\(count) items") }
+
+    // MARK: - AI coach (UI)
+
+    var aiCardTitle: String { s("โค้ชส่วนตัว", "Your coach") }
+    var aiThinking: String { s("กำลังคิด...", "Thinking...") }
+    var aiRefresh: String { s("ขอคำแนะนำใหม่", "New suggestion") }
+    var aiOpenChat: String { s("คุยกับโค้ช", "Chat with coach") }
+    var aiWeeklyTitle: String { s("สรุปสัปดาห์นี้", "This week in review") }
+    var aiChatTitle: String { s("โค้ชส่วนตัว", "Coach") }
+    var aiChatPlaceholder: String { s("ถามอะไรก็ได้เกี่ยวกับมื้ออาหาร...", "Ask anything about your meals...") }
+    var aiChatFailed: String {
+        s("ขออภัย ตอบไม่ได้ในตอนนี้ ลองถามใหม่อีกครั้ง", "Sorry, I couldn't answer that. Please try again.")
+    }
+    func aiChatGreeting(_ name: String) -> String {
+        s("สวัสดี \(name) ถามได้เลยว่าวันนี้ควรกินอะไรดี หรืออยากให้ช่วยดูอะไรเป็นพิเศษ",
+          "Hi \(name) — ask me what to eat today, or anything you'd like a second opinion on.")
+    }
+
+    var aiEstimateButton: String { s("ประมาณแคลอรี่", "Estimate calories") }
+    var aiEstimateFromTable: String {
+        s("ค่าประมาณจากตารางเมนูทั่วไป", "Estimated from a table of common dishes")
+    }
+    var aiEstimateFailed: String {
+        s("ประมาณค่าไม่ได้ ลองกรอกเอง", "Couldn't estimate — please enter it manually")
+    }
+
+    var aiSettingsLabel: String { s("คำแนะนำจาก AI", "AI suggestions") }
+    var aiSettingsHint: String {
+        s("ประมวลผลในเครื่องทั้งหมด ข้อมูลของคุณไม่ถูกส่งออกไปไหน",
+          "Runs entirely on your device — your data never leaves it")
+    }
+    var aiFallbackNotice: String {
+        s("กำลังใช้คำแนะนำแบบพื้นฐาน", "Using basic suggestions")
+    }
+
+    func aiUnavailableReason(_ reason: String) -> String {
+        switch reason {
+        case "requiresOS":
+            return s("ต้องใช้ iOS 26 ขึ้นไป", "Requires iOS 26 or later")
+        case "deviceNotEligible":
+            return s("เครื่องนี้ไม่รองรับ Apple Intelligence", "This device doesn't support Apple Intelligence")
+        case "notEnabled":
+            return s("ยังไม่ได้เปิด Apple Intelligence ในการตั้งค่าเครื่อง",
+                     "Apple Intelligence is turned off in system Settings")
+        case "modelNotReady":
+            return s("โมเดลกำลังดาวน์โหลด ลองใหม่อีกครั้งภายหลัง",
+                     "The model is still downloading — try again later")
+        default:
+            return s("ใช้ AI ไม่ได้ในขณะนี้", "AI is unavailable right now")
+        }
+    }
+
+    // MARK: - AI coach (prompts)
+
+    /// บังคับภาษาของคำตอบให้ตรงกับที่ผู้ใช้เลือกในแอป ไม่ใช่ภาษาของคำถาม
+    var aiPromptLanguageRule: String {
+        s("ตอบเป็นภาษาไทยเท่านั้น", "Answer in English only.")
+    }
+
+    var aiSystemInstructions: String {
+        s("""
+          คุณเป็นโค้ชโภชนาการที่เป็นมิตรและให้กำลังใจในแอปบันทึกแคลอรี่ชื่อ CalorieFlow
+          ให้คำแนะนำที่ทำได้จริงและเจาะจง อ้างอิงตัวเลขที่ผู้ใช้บันทึกไว้
+          แนะนำอาหารไทยที่หาได้ทั่วไปเมื่อเหมาะสม
+          ห้ามวินิจฉัยโรคหรือให้คำแนะนำทางการแพทย์ ถ้าผู้ใช้ถามเรื่องอาการหรือยา
+          ให้แนะนำให้ปรึกษาแพทย์หรือนักโภชนาการ
+          """,
+          """
+          You are a friendly, encouraging nutrition coach inside a calorie-logging app called CalorieFlow.
+          Give practical, specific advice grounded in the numbers the user has logged.
+          Suggest commonly available Thai dishes where relevant.
+          Never diagnose conditions or give medical advice. If the user asks about symptoms or
+          medication, point them to a doctor or registered dietitian.
+          """)
+    }
+
+    var aiChatInstructions: String {
+        s("ตอบสั้น กระชับ ไม่เกิน 4 ประโยค เว้นแต่ผู้ใช้ขอรายละเอียดเพิ่ม",
+          "Keep answers short — at most 4 sentences — unless the user asks for more detail.")
+    }
+
+    var aiPromptContextHeader: String { s("ข้อมูลผู้ใช้ปัจจุบัน", "Current user data") }
+    var aiPromptWeekHeader: String { s("ข้อมูล 7 วันล่าสุด (เก่าไปใหม่)", "Last 7 days (oldest to newest)") }
+    var aiPromptGoalField: String { s("เป้าหมาย", "Goal") }
+    var aiPromptTargetField: String { s("เป้าหมายต่อวัน", "Daily target") }
+    var aiPromptConsumedField: String { s("ทานไปแล้ว", "Consumed") }
+    var aiPromptRemainingField: String { s("เหลือ", "Remaining") }
+    var aiPromptWaterField: String { s("น้ำ", "Water") }
+    var aiPromptStreakField: String { s("บันทึกต่อเนื่อง (วัน)", "Logging streak (days)") }
+    var aiPromptFoodsField: String { s("อาหารวันนี้", "Foods today") }
+    var aiPromptWeightField: String { s("น้ำหนัก", "Weight") }
+    var aiPromptCaloriesPerDay: String { s("แคลอรี่รายวัน", "Calories per day") }
+    var aiPromptWaterPerDay: String { s("น้ำรายวัน (ml)", "Water per day (ml)") }
+    var aiPromptAverageField: String { s("ค่าเฉลี่ยสัปดาห์", "Weekly average") }
+    var aiPromptDishField: String { s("ชื่อเมนู", "Dish") }
+
+    var aiPromptDailyTask: String {
+        s("เขียนคำแนะนำสำหรับวันนี้ 2-3 ประโยค อ้างอิงตัวเลขข้างต้น ให้กำลังใจแต่ตรงไปตรงมา ห้ามใส่หัวข้อหรือ bullet",
+          "Write a 2-3 sentence suggestion for today. Reference the numbers above. Be encouraging but direct. No headings or bullets.")
+    }
+
+    var aiPromptWeeklyTask: String {
+        s("สรุปภาพรวมสัปดาห์นี้ 3-4 ประโยค ชี้จุดที่ทำได้ดีหนึ่งอย่างและจุดที่ควรปรับหนึ่งอย่าง ห้ามใส่หัวข้อหรือ bullet",
+          "Summarise the week in 3-4 sentences. Name one thing going well and one thing to adjust. No headings or bullets.")
+    }
+
+    var aiPromptEstimateTask: String {
+        s("ประมาณแคลอรี่ของเมนูนี้ต่อหนึ่งจานมาตรฐานแบบที่ขายทั่วไปในไทย",
+          "Estimate the calories in one standard single serving of this dish as commonly served.")
+    }
 }

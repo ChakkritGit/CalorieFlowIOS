@@ -2,12 +2,14 @@ import SwiftUI
 
 struct DashboardView: View {
     @Environment(AppStore.self) private var store
+    @Environment(AICoach.self) private var coach
     @Environment(\.l10n) private var t
 
     var onAddFood: () -> Void
 
     @State private var waterInput = ""
     @State private var showWrapped = false
+    @State private var showChat = false
     @State private var shareItem: ShareItem?
     @FocusState private var waterFieldFocused: Bool
 
@@ -19,6 +21,7 @@ struct DashboardView: View {
             if isDecember { wrappedBanner }
             if store.user.streak > 0 { streakCard }
             summaryCard
+            coachCard
             dailyStatusCard
             waterCard
             todayFoodList
@@ -26,9 +29,24 @@ struct DashboardView: View {
         .fullScreenCover(isPresented: $showWrapped) {
             WrappedStoryView(data: store.wrappedData())
         }
+        .sheet(isPresented: $showChat) {
+            CoachChatView()
+        }
         .sheet(item: $shareItem) { item in
             ShareSheet(items: [item.image])
         }
+    }
+
+    // MARK: - Coach
+
+    private var coachCard: some View {
+        CoachCard(
+            title: t.aiCardTitle,
+            icon: "sparkles",
+            accent: Palette.purple,
+            generate: { await coach.dailyTip(store.adviceContext, t) },
+            onOpenChat: { showChat = true }
+        )
     }
 
     // MARK: - Wrapped banner
