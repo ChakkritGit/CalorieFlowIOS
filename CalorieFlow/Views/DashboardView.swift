@@ -2,7 +2,9 @@ import SwiftUI
 
 struct DashboardView: View {
     @Environment(AppStore.self) private var store
-    @Binding var tab: AppTab
+    @Environment(\.l10n) private var t
+
+    var onAddFood: () -> Void
 
     @State private var waterInput = ""
     @State private var showWrapped = false
@@ -10,6 +12,7 @@ struct DashboardView: View {
     @FocusState private var waterFieldFocused: Bool
 
     private var isDecember: Bool { Calendar.current.component(.month, from: .now) == 12 }
+    private var currentYear: Int { Calendar.current.component(.year, from: .now) }
 
     var body: some View {
         ScreenScroll {
@@ -36,12 +39,11 @@ struct DashboardView: View {
         } label: {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("พร้อมหรือยัง?")
+                    Text(t.wrappedTeaser)
                         .font(.system(size: 10, weight: .black))
                         .tracking(1.5)
                         .opacity(0.8)
-                    Text("Wrapped \(String(Calendar.current.component(.year, from: .now)))")
-                        .font(.title3.weight(.black))
+                    Text(t.wrappedTitle(currentYear)).font(.title3.weight(.black))
                 }
                 Spacer()
                 Image(systemName: "trophy.fill").font(.title2)
@@ -49,7 +51,7 @@ struct DashboardView: View {
             .foregroundStyle(.white)
             .padding(20)
             .background(
-                LinearGradient(colors: [Palette.purple, Palette.pink],
+                LinearGradient(colors: [Color(hex: 0x9333EA), Color(hex: 0xEC4899)],
                                startPoint: .leading, endPoint: .trailing),
                 in: RoundedRectangle(cornerRadius: 28, style: .continuous)
             )
@@ -67,25 +69,26 @@ struct DashboardView: View {
                     .padding(12)
                     .background(.white.opacity(0.2), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("บันทึกต่อเนื่อง")
+                    Text(t.streakCaption)
                         .font(.system(size: 10, weight: .black))
                         .tracking(1.5)
                         .opacity(0.8)
-                    Text("\(store.user.streak) วัน").font(.title2.weight(.black))
+                    Text(t.days(store.user.streak)).font(.title2.weight(.black))
                 }
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 4) {
                 Image(systemName: "rosette").font(.title3).opacity(0.5)
-                Text(store.user.streak > 3 ? "ความพยายาม เยี่ยมมาก!" : "ความพยายาม สู้ต่อไป!")
+                Text(t.effortNote(great: store.user.streak > 3))
                     .font(.system(size: 10, weight: .bold))
                     .opacity(0.8)
+                    .multilineTextAlignment(.trailing)
             }
         }
         .foregroundStyle(.white)
         .padding(16)
         .background(
-            LinearGradient(colors: [Palette.orange, Palette.red],
+            LinearGradient(colors: [Color(hex: 0xFB923C), Color(hex: 0xEF4444)],
                            startPoint: .topLeading, endPoint: .bottomTrailing),
             in: RoundedRectangle(cornerRadius: 28, style: .continuous)
         )
@@ -97,10 +100,10 @@ struct DashboardView: View {
         VStack(spacing: 24) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("สวัสดี, \(store.user.name)")
+                    Text(t.greeting(store.user.name))
                         .font(.title2.bold())
                         .foregroundStyle(Palette.ink)
-                    Text("เป้าหมาย: \(store.user.goalType.label)")
+                    Text(t.goalLine(store.user.goalType))
                         .font(.subheadline)
                         .foregroundStyle(Palette.inkSoft)
                 }
@@ -114,9 +117,9 @@ struct DashboardView: View {
                         .background(Palette.greenSoft, in: Capsule())
 
                     Button(action: share) {
-                        Label("แชร์", systemImage: "square.and.arrow.up")
+                        Label(t.share, systemImage: "square.and.arrow.up")
                             .font(.system(size: 11, weight: .bold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Palette.card)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
                             .background(Palette.ink, in: Capsule())
@@ -134,16 +137,16 @@ struct DashboardView: View {
                     Text(store.remaining < 0 ? "+\(abs(store.remaining))" : "\(store.remaining)")
                         .font(.system(size: 40, weight: .bold))
                         .foregroundStyle(store.remaining < 0 ? Palette.red : Palette.ink)
-                    Text(store.remaining < 0 ? "กินเกิน (KCAL)" : "เหลือ (KCAL)")
+                    Text(store.remaining < 0 ? t.overCaption : t.remainingCaption)
                         .font(.caption2)
                         .foregroundStyle(Palette.inkFaint)
                 }
             }
 
             HStack(spacing: 32) {
-                metric(title: "ทานไปแล้ว", value: "\(store.todayLog.totalCalories)")
+                metric(title: t.consumed, value: "\(store.todayLog.totalCalories)")
                 metric(
-                    title: "เป้าหมาย (\(store.user.manualTDEE != nil ? "กำหนดเอง" : "TDEE"))",
+                    title: t.targetCaption(isManual: store.user.manualTDEE != nil),
                     value: "\(store.dailyTarget)"
                 )
             }
@@ -153,7 +156,10 @@ struct DashboardView: View {
 
     private func metric(title: String, value: String) -> some View {
         VStack(spacing: 2) {
-            Text(title).font(.caption2).foregroundStyle(Palette.inkFaint)
+            Text(title)
+                .font(.caption2)
+                .foregroundStyle(Palette.inkFaint)
+                .multilineTextAlignment(.center)
             Text(value).font(.title3.weight(.semibold)).foregroundStyle(Palette.ink)
         }
         .frame(maxWidth: .infinity)
@@ -167,15 +173,18 @@ struct DashboardView: View {
 
         return VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("สถานะรายวัน").font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink)
+                Text(t.dailyStatus).font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink)
                 Spacer()
                 Text("\(status)%").font(.caption).foregroundStyle(Palette.inkFaint)
             }
             ProgressBar(value: Double(status) / 100, tint: tint)
             Text(
                 status == 100
-                    ? "ยอดเยี่ยม! ครบตามเป้าหมายแล้ว"
-                    : "เฉลี่ย: อาหาร \(Int((store.calorieProgress * 100).rounded()))%, น้ำ \(Int((store.waterProgress * 100).rounded()))%"
+                    ? t.allGoalsMet
+                    : t.statusBreakdown(
+                        food: Int((store.calorieProgress * 100).rounded()),
+                        water: Int((store.waterProgress * 100).rounded())
+                      )
             )
             .font(.caption2)
             .foregroundStyle(Palette.inkFaint)
@@ -190,7 +199,7 @@ struct DashboardView: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Label {
-                    Text("ปริมาณน้ำที่ดื่ม").font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink)
+                    Text(t.waterTitle).font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink)
                 } icon: {
                     Image(systemName: "drop.fill")
                         .foregroundStyle(Palette.blue)
@@ -198,7 +207,7 @@ struct DashboardView: View {
                         .background(Palette.blueSoft, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
                 Spacer()
-                Text("เป้าหมาย: \(store.user.waterGoal) ml")
+                Text(t.waterGoalShort(store.user.waterGoal))
                     .font(.caption)
                     .foregroundStyle(Palette.inkFaint)
             }
@@ -215,12 +224,12 @@ struct DashboardView: View {
             ProgressBar(value: store.waterProgress, tint: Palette.blue, track: Palette.blueSoft)
 
             HStack(spacing: 12) {
-                quickWater(250, label: "250 ml (แก้ว)")
-                quickWater(500, label: "500 ml (ขวด)")
+                quickWater(250, label: t.waterGlass)
+                quickWater(500, label: t.waterBottle)
             }
 
             HStack(spacing: 8) {
-                TextField("ระบุจำนวน (ml)", text: $waterInput)
+                TextField(t.waterAmountPlaceholder, text: $waterInput)
                     .keyboardType(.numberPad)
                     .focused($waterFieldFocused)
                     .padding(.horizontal, 16)
@@ -231,7 +240,7 @@ struct DashboardView: View {
                             .strokeBorder(Palette.border, lineWidth: 1)
                     )
 
-                Button("เพิ่ม") {
+                Button(t.add) {
                     if let amount = Int(waterInput), amount > 0 {
                         store.addWater(amount)
                     }
@@ -239,7 +248,7 @@ struct DashboardView: View {
                     waterFieldFocused = false
                 }
                 .font(.subheadline.bold())
-                .foregroundStyle(.white)
+                .foregroundStyle(Palette.card)
                 .padding(.horizontal, 18)
                 .padding(.vertical, 12)
                 .background(Palette.ink, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -267,16 +276,16 @@ struct DashboardView: View {
     private var todayFoodList: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("รายการวันนี้").font(.headline).foregroundStyle(Palette.ink)
+                Text(t.todayItems).font(.headline).foregroundStyle(Palette.ink)
                 Spacer()
-                Button("+ เพิ่มรายการ") { tab = .add }
+                Button(t.addItem, action: onAddFood)
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(Palette.greenDeep)
             }
             .padding(.horizontal, 8)
 
             if store.todayLog.foods.isEmpty {
-                Text("ยังไม่มีรายการอาหาร")
+                Text(t.noFoodYet)
                     .foregroundStyle(Palette.inkFaint)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 36)
@@ -290,10 +299,12 @@ struct DashboardView: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(food.name).font(.body.weight(.medium)).foregroundStyle(Palette.ink)
-                            Text(food.timestamp.thaiTime).font(.caption2).foregroundStyle(Palette.inkFaint)
+                            Text(food.timestamp.timeOfDay(locale: t.locale))
+                                .font(.caption2)
+                                .foregroundStyle(Palette.inkFaint)
                         }
                         Spacer()
-                        Text("\(food.calories) kcal")
+                        Text("\(food.calories) \(t.kcal)")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(Palette.inkSoft)
                         Button {
@@ -318,7 +329,8 @@ struct DashboardView: View {
             user: store.user,
             log: store.todayLog,
             dailyTarget: store.dailyTarget,
-            date: .now
+            date: .now,
+            t: t
         )
         if let image = ImageExport.render(card) {
             shareItem = ShareItem(image: image)

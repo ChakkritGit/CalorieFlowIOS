@@ -27,7 +27,9 @@ open CalorieFlow.xcodeproj
 | `Models/Models.swift` | `UserProfile`, `DailyLog`, `FoodItem`, enum ต่าง ๆ | `src/types/types.ts` |
 | `Services/Calculations.swift` | TDEE (Mifflin-St Jeor) + คีย์วันที่ `YYYY-MM-DD` ตามเวลาเครื่อง | `calculateTDEE`, `getTodayDateString` |
 | `Services/AppStore.swift` | สถานะกลาง + บันทึกลงไฟล์ JSON + สตรีค + สรุปรายสัปดาห์/รายปี | `useState` + `src/services/db.ts` (IndexedDB) |
-| `Views/RootView.swift` | แท็บบาร์ล่างพร้อมปุ่ม + ตรงกลาง | `<nav>` + `TabButton` |
+| `Services/Preferences.swift` | ธีม (ตามระบบ/สว่าง/มืด) และภาษา เก็บใน UserDefaults | — |
+| `Resources/Strings.swift` | ตารางข้อความไทย/อังกฤษ (`L10n`) | ข้อความไทยฝังในโค้ด |
+| `Views/RootView.swift` | `TabView` + แถบล่างที่วาดเองพร้อมปุ่ม + ตรงกลาง | `<nav>` + `TabButton` |
 | `Views/DashboardView.swift` | วงแหวนแคลอรี่ สตรีค น้ำ รายการอาหารวันนี้ | `renderDashboard` |
 | `Views/HistoryView.swift` | ปฏิทิน พ.ศ. + สรุปรายวัน | `renderHistory`, `renderCalendar` |
 | `Views/AddFoodView.swift` | ฟอร์มเพิ่มอาหาร | `renderAddFood` |
@@ -47,6 +49,21 @@ open CalorieFlow.xcodeproj
 | ดาวน์โหลดผ่าน `<a download>` | เขียนลง temp แล้วเปิด share sheet |
 | Recharts | Swift Charts |
 | ฟอนต์ Anuphan | ฟอนต์ระบบ (รองรับภาษาไทยอยู่แล้ว) |
+
+## ธีมและภาษา
+
+- **ธีม** — เลือกได้ 3 แบบ: ตามระบบ / สว่าง / มืด สีทั้งหมดอยู่ใน `Palette` และประกาศเป็น
+  `UIColor` แบบ dynamic จึงสลับตาม trait เองโดยไม่ต้องอ่าน `@Environment(\.colorScheme)`
+  ในทุก view · การ์ดแชร์และหน้า Wrapped ใช้สีคงที่เสมอ เพราะเป็นภาพที่ส่งออกไปนอกแอป
+- **ภาษา** — ไทย / English สลับได้ทันทีโดยไม่ต้องรีสตาร์ท จึงไม่ใช้ `NSLocalizedString`
+  (ซึ่งผูกกับภาษาของระบบ) แต่เก็บข้อความไว้ใน `L10n` แล้วส่งผ่าน environment key `\.l10n`
+  ค่าเริ่มต้นอ่านจากภาษาของระบบ
+
+## แถบแท็บล่าง
+
+ใช้ `TabView` (แต่ละแท็บจึงเก็บ state และตำแหน่ง scroll ของตัวเองไว้) แล้วซ่อนแถบมาตรฐาน
+ด้วย `.toolbar(.hidden, for: .tabBar)` และวาดแถบเองทับ เพราะ `TabView` วางปุ่ม + ทรงกลม
+ยกกลางไม่ได้ · ปุ่ม + เปิด `AddFoodView` เป็น sheet แทนที่จะเป็นแท็บ
 
 ## ความเข้ากันได้ของไฟล์สำรอง (.wgd)
 

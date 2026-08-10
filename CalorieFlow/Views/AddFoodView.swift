@@ -2,7 +2,8 @@ import SwiftUI
 
 struct AddFoodView: View {
     @Environment(AppStore.self) private var store
-    @Binding var tab: AppTab
+    @Environment(\.l10n) private var t
+    @Environment(\.dismiss) private var dismiss
 
     @State private var name = ""
     @State private var calories = ""
@@ -15,12 +16,14 @@ struct AddFoodView: View {
     }
 
     var body: some View {
-        ScreenScroll(title: "เพิ่มรายการอาหาร") {
+        ScreenScroll(title: t.addFoodTitle) {
             VStack(alignment: .leading, spacing: 24) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("ชื่อเมนูอาหาร").font(.subheadline.weight(.medium)).foregroundStyle(Palette.inkSoft)
+                    Text(t.foodNameLabel)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(Palette.inkSoft)
                     HStack {
-                        TextField("เช่น ข้าวมันไก่, กะเพราหมูสับ...", text: $name)
+                        TextField(t.foodNamePlaceholder, text: $name)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                             .focused($focus, equals: .name)
@@ -30,11 +33,13 @@ struct AddFoodView: View {
                             .foregroundStyle(Palette.purple.opacity(0.5))
                     }
                     .inputFieldStyle()
-                    Text("โปรดระบุ").font(.caption2).foregroundStyle(Palette.inkFaint)
+                    Text(t.required).font(.caption2).foregroundStyle(Palette.inkFaint)
                 }
 
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("แคลอรี่").font(.subheadline.weight(.medium)).foregroundStyle(Palette.inkSoft)
+                    Text(t.caloriesLabel)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(Palette.inkSoft)
                     TextField("0", text: $calories)
                         .keyboardType(.numberPad)
                         .focused($focus, equals: .calories)
@@ -42,7 +47,7 @@ struct AddFoodView: View {
                 }
 
                 Button(action: save) {
-                    Text("บันทึกรายการ")
+                    Text(t.saveItem)
                         .font(.title3.bold())
                         .foregroundStyle(canSave ? .white : Palette.inkSoft)
                         .frame(maxWidth: .infinity)
@@ -65,21 +70,6 @@ struct AddFoodView: View {
     private func save() {
         guard canSave, let kcal = Int(calories) else { return }
         store.addFood(name: name.trimmingCharacters(in: .whitespaces), calories: kcal)
-        name = ""
-        calories = ""
-        focus = nil
-        tab = .dashboard
-    }
-}
-
-extension View {
-    /// ช่องกรอกข้อมูลสไตล์เดียวกับเวอร์ชันเว็บ (`bg-slate-50 rounded-xl`)
-    func inputFieldStyle() -> some View {
-        padding(16)
-            .background(Palette.background, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .strokeBorder(Palette.border, lineWidth: 1)
-            )
+        dismiss()
     }
 }

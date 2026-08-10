@@ -45,7 +45,6 @@ final class AppStore {
     struct DayPoint: Identifiable {
         let id = UUID()
         let date: Date
-        let label: String
         let calories: Int
         let water: Int
     }
@@ -58,7 +57,6 @@ final class AppStore {
             let log = logs[DateKey.string(from: d)]
             return DayPoint(
                 date: d,
-                label: d.shortThaiWeekday,
                 calories: log?.totalCalories ?? 0,
                 water: log?.waterIntake ?? 0
             )

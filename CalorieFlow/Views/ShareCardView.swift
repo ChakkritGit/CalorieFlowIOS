@@ -2,11 +2,15 @@ import SwiftUI
 
 /// การ์ดสรุปประจำวันขนาด 375×667 สำหรับแชร์ลงสตอรี่
 /// เทียบเท่า `<div id="story-capture">` ที่เวอร์ชันเว็บใช้ html2canvas จับภาพ
+///
+/// การ์ดนี้บังคับใช้ธีมสว่างเสมอ เพราะเป็นรูปที่ถูกส่งออกไปนอกแอป
+/// ไม่ควรเปลี่ยนหน้าตาตามธีมของเครื่องผู้ส่ง
 struct ShareCardView: View {
     let user: UserProfile
     let log: DailyLog
     let dailyTarget: Int
     let date: Date
+    let t: L10n
 
     private var remaining: Int { dailyTarget - log.totalCalories }
 
@@ -15,13 +19,22 @@ struct ShareCardView: View {
         return min(Double(log.totalCalories) / Double(dailyTarget), 1)
     }
 
+    // สีคงที่ ไม่ผูกกับ Palette ที่ปรับตามธีม
+    private let ink = Color(hex: 0x1E293B)
+    private let inkFaint = Color(hex: 0x94A3B8)
+    private let track = Color(hex: 0xE5E7EB)
+    private let green = Color(hex: 0x22C55E)
+    private let blue = Color(hex: 0x3B82F6)
+    private let blueDeep = Color(hex: 0x2563EB)
+    private let red = Color(hex: 0xEF4444)
+
     var body: some View {
         VStack(spacing: 20) {
             header
 
             Text("Daily Summary")
                 .font(.system(size: 30, weight: .black))
-                .foregroundStyle(Palette.ink)
+                .foregroundStyle(ink)
 
             mainStats
             secondaryStats
@@ -31,19 +44,20 @@ struct ShareCardView: View {
             VStack(spacing: 8) {
                 Text("Keep going towards your goal!")
                     .font(.caption.weight(.medium))
-                    .foregroundStyle(Palette.inkFaint)
-                Capsule().fill(Palette.track).frame(width: 48, height: 4)
+                    .foregroundStyle(inkFaint)
+                Capsule().fill(track).frame(width: 48, height: 4)
             }
         }
         .padding(28)
         .frame(width: 375, height: 667)
         .background(
             LinearGradient(
-                colors: [Palette.greenSoft, .white, Palette.blueSoft],
+                colors: [Color(hex: 0xDCFCE7), .white, Color(hex: 0xEFF6FF)],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
         )
+        .environment(\.colorScheme, .light)
     }
 
     private var header: some View {
@@ -53,37 +67,37 @@ struct ShareCardView: View {
                     .font(.system(size: 14, weight: .bold))
                     .foregroundStyle(.white)
                     .frame(width: 32, height: 32)
-                    .background(Palette.green, in: Circle())
-                Text("CalorieFlow").font(.headline).foregroundStyle(Palette.ink)
+                    .background(green, in: Circle())
+                Text("CalorieFlow").font(.headline).foregroundStyle(ink)
             }
             Spacer()
-            Text(date.shortThaiWeekday)
+            Text(date.shortWeekday(locale: t.locale))
                 .font(.caption.bold())
-                .foregroundStyle(Palette.inkFaint)
+                .foregroundStyle(inkFaint)
         }
     }
 
     private var mainStats: some View {
         VStack(spacing: 20) {
-            CircularProgress(value: progress, tint: Palette.green, size: 170) {
+            CircularProgress(value: progress, tint: green, size: 170, trackColor: track) {
                 VStack(spacing: 2) {
                     Text("\(log.totalCalories)")
                         .font(.system(size: 38, weight: .black))
-                        .foregroundStyle(Palette.ink)
+                        .foregroundStyle(ink)
                     Text("KCAL CONSUMED")
                         .font(.system(size: 9, weight: .black))
                         .tracking(1.5)
-                        .foregroundStyle(Palette.inkFaint)
+                        .foregroundStyle(inkFaint)
                 }
             }
 
             HStack(spacing: 28) {
-                statColumn(value: "\(dailyTarget)", label: "GOAL", color: Palette.ink)
-                Rectangle().fill(Palette.track).frame(width: 1, height: 40)
+                statColumn(value: "\(dailyTarget)", label: "GOAL", color: ink)
+                Rectangle().fill(track).frame(width: 1, height: 40)
                 statColumn(
                     value: remaining > 0 ? "\(remaining)" : "+\(abs(remaining))",
                     label: "LEFT",
-                    color: remaining < 0 ? Palette.red : Palette.ink
+                    color: remaining < 0 ? red : ink
                 )
             }
         }
@@ -98,7 +112,7 @@ struct ShareCardView: View {
             Text(label)
                 .font(.system(size: 9, weight: .bold))
                 .tracking(1)
-                .foregroundStyle(Palette.inkFaint)
+                .foregroundStyle(inkFaint)
         }
     }
 
@@ -113,20 +127,20 @@ struct ShareCardView: View {
             .frame(maxWidth: .infinity)
             .padding(.vertical, 20)
             .background(
-                LinearGradient(colors: [Palette.orange, Palette.red],
+                LinearGradient(colors: [Color(hex: 0xFB923C), red],
                                startPoint: .topLeading, endPoint: .bottomTrailing),
                 in: RoundedRectangle(cornerRadius: 24, style: .continuous)
             )
 
             VStack(spacing: 4) {
-                Image(systemName: "drop.fill").font(.system(size: 28)).foregroundStyle(Palette.blue)
+                Image(systemName: "drop.fill").font(.system(size: 28)).foregroundStyle(blue)
                 Text("\(log.waterIntake)")
                     .font(.system(size: 28, weight: .black))
-                    .foregroundStyle(Palette.blueDeep)
+                    .foregroundStyle(blueDeep)
                 Text("ML WATER")
                     .font(.system(size: 9, weight: .bold))
                     .tracking(1)
-                    .foregroundStyle(Palette.inkFaint)
+                    .foregroundStyle(inkFaint)
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 20)

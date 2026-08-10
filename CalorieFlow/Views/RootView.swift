@@ -2,34 +2,49 @@ import SwiftUI
 import Combine
 
 enum AppTab: Hashable {
-    case dashboard, history, add, stats, settings
+    case dashboard, history, stats, settings
 }
 
 struct RootView: View {
     @Environment(AppStore.self) private var store
     @Environment(\.scenePhase) private var scenePhase
+
     @State private var tab: AppTab = .dashboard
+    @State private var showAddSheet = false
 
     /// เวอร์ชันเว็บเช็ควันที่ทุกนาทีเผื่อแอปเปิดค้างข้ามเที่ยงคืน
     private let midnightTick = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            Palette.background.ignoresSafeArea()
+            // TabView เก็บ state และตำแหน่ง scroll ของแต่ละแท็บไว้ให้เอง
+            // แต่แถบมาตรฐานวางปุ่ม + ทรงกลมตรงกลางไม่ได้ จึงซ่อนแล้ววาดทับด้วย TabBar
+            TabView(selection: $tab) {
+                DashboardView(onAddFood: { showAddSheet = true })
+                    .tag(AppTab.dashboard)
+                    .toolbar(.hidden, for: .tabBar)
 
-            Group {
-                switch tab {
-                case .dashboard: DashboardView(tab: $tab)
-                case .history: HistoryView()
-                case .add: AddFoodView(tab: $tab)
-                case .stats: StatsView()
-                case .settings: SettingsView()
-                }
+                HistoryView()
+                    .tag(AppTab.history)
+                    .toolbar(.hidden, for: .tabBar)
+
+                StatsView()
+                    .tag(AppTab.stats)
+                    .toolbar(.hidden, for: .tabBar)
+
+                SettingsView()
+                    .tag(AppTab.settings)
+                    .toolbar(.hidden, for: .tabBar)
             }
-            .frame(maxWidth: 520)
-            .frame(maxWidth: .infinity)
+            .background(Palette.background)
 
-            TabBar(selection: $tab)
+            TabBar(selection: $tab, onAdd: { showAddSheet = true })
+        }
+        .ignoresSafeArea(.keyboard, edges: .bottom)
+        .sheet(isPresented: $showAddSheet) {
+            AddFoodView()
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
         }
         .onReceive(midnightTick) { _ in store.refreshTodayIfNeeded() }
         .onChange(of: scenePhase) { _, phase in
@@ -40,14 +55,17 @@ struct RootView: View {
 
 private struct TabBar: View {
     @Binding var selection: AppTab
+    var onAdd: () -> Void
+
+    @Environment(\.l10n) private var t
 
     var body: some View {
         HStack(spacing: 0) {
-            item(.dashboard, icon: "fork.knife", label: "หน้าหลัก")
-            item(.history, icon: "clock.arrow.circlepath", label: "ประวัติ")
+            item(.dashboard, icon: "fork.knife", label: t.tabHome)
+            item(.history, icon: "clock.arrow.circlepath", label: t.tabHistory)
             addButton
-            item(.stats, icon: "chart.bar.fill", label: "สถิติ")
-            item(.settings, icon: "gearshape.fill", label: "ตั้งค่า")
+            item(.stats, icon: "chart.bar.fill", label: t.tabStats)
+            item(.settings, icon: "gearshape.fill", label: t.tabSettings)
         }
         .padding(.top, 12)
         .padding(.horizontal, 8)
@@ -56,7 +74,7 @@ private struct TabBar: View {
                 .shadow(color: .black.opacity(0.08), radius: 20, y: -10)
                 .ignoresSafeArea(edges: .bottom)
         )
-        .overlay(alignment: .top) { Divider().background(Palette.border) }
+        .overlay(alignment: .top) { Rectangle().fill(Palette.border).frame(height: 1) }
     }
 
     private func item(_ target: AppTab, icon: String, label: String) -> some View {
@@ -77,9 +95,7 @@ private struct TabBar: View {
     }
 
     private var addButton: some View {
-        Button {
-            selection = .add
-        } label: {
+        Button(action: onAdd) {
             Image(systemName: "plus")
                 .font(.system(size: 22, weight: .heavy))
                 .foregroundStyle(.white)
@@ -109,9 +125,12 @@ struct ScreenScroll<Content: View>: View {
                 }
                 content()
             }
+            .frame(maxWidth: 520)
+            .frame(maxWidth: .infinity)
             .padding(24)
-            .padding(.bottom, 100)
+            .padding(.bottom, 110)
         }
         .scrollIndicators(.hidden)
+        .background(Palette.background)
     }
 }

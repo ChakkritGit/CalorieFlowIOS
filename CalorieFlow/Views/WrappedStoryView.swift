@@ -2,16 +2,18 @@ import SwiftUI
 import Combine
 
 /// สรุปประจำปีแบบสตอรี่ — แตะขวาไปหน้าถัดไป แตะซ้ายย้อนกลับ เปลี่ยนอัตโนมัติทุก 15 วินาที
+/// ใช้สีคงที่ทั้งหมด (ไม่ผูกกับ Palette) เพราะเป็นฉากไล่สีเข้มพร้อมตัวอักษรขาวเสมอ
 struct WrappedStoryView: View {
     let data: AppStore.WrappedData
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.l10n) private var t
+
     @State private var step = 0
     @State private var shareItem: ShareItem?
 
     private let ticker = Timer.publish(every: 15, on: .main, in: .common).autoconnect()
-
-    private var stepCount: Int { 5 }
+    private let stepCount = 5
 
     var body: some View {
         ZStack {
@@ -57,7 +59,7 @@ struct WrappedStoryView: View {
                         .font(.system(size: 8, weight: .bold))
                         .frame(width: 20, height: 20)
                         .background(.white.opacity(0.2), in: Circle())
-                    Text("WRAPPED \(String(data.year))")
+                    Text(t.wrappedTitle(data.year).uppercased())
                         .font(.system(size: 10, weight: .bold))
                         .tracking(1.5)
                 }
@@ -90,7 +92,7 @@ struct WrappedStoryView: View {
     @ViewBuilder
     private var content: some View {
         VStack(spacing: 28) {
-            Text(title(for: step))
+            Text(t.wrappedStepTitle(step))
                 .font(.system(size: 11, weight: .black))
                 .tracking(3)
                 .opacity(0.6)
@@ -102,15 +104,15 @@ struct WrappedStoryView: View {
                 Image(systemName: "sparkles")
                     .font(.system(size: 64))
                     .foregroundStyle(.yellow)
-                Text("ปี \(String(data.year)) เป็นปีแห่งการดูแลตัวเองของคุณ")
+                Text(t.wrappedIntro(data.year))
                     .font(.system(size: 30, weight: .black))
                     .multilineTextAlignment(.center)
 
             case 1:
                 VStack(spacing: 8) {
                     Text(data.totalCalories.formatted()).font(.system(size: 52, weight: .black))
-                    Text("KCAL ทั้งปี").font(.title3.bold()).tracking(2).opacity(0.8)
-                    Text("เฉลี่ยวันละ \(data.totalCalories / max(data.activeDays, 1)) kcal")
+                    Text(t.wrappedKcalCaption).font(.title3.bold()).tracking(2).opacity(0.8)
+                    Text(t.wrappedDailyAverage(data.totalCalories / max(data.activeDays, 1)))
                         .font(.subheadline)
                         .padding(16)
                         .frame(maxWidth: .infinity)
@@ -126,23 +128,22 @@ struct WrappedStoryView: View {
                             .foregroundStyle(.white.opacity(0.3))
                         Text("\(data.totalWater / 1000)").font(.system(size: 28, weight: .black))
                     }
-                    Text("ลิตร").font(.system(size: 24, weight: .black))
-                    Text("คือปริมาณน้ำทั้งหมดที่คุณดื่มในปีนี้")
-                        .font(.subheadline)
-                        .opacity(0.8)
+                    Text(t.wrappedLitres).font(.system(size: 24, weight: .black))
+                    Text(t.wrappedWaterCaption).font(.subheadline).opacity(0.8)
+                        .multilineTextAlignment(.center)
                 }
 
             case 3:
                 VStack(spacing: 12) {
                     if data.topFoods.isEmpty {
-                        Text("ยังไม่มีเมนูที่บันทึกไว้ในปีนี้").font(.headline).opacity(0.8)
+                        Text(t.wrappedNoFoods).font(.headline).opacity(0.8)
                     }
                     ForEach(Array(data.topFoods.enumerated()), id: \.offset) { index, food in
                         HStack {
                             Text("#\(index + 1)").font(.system(size: 22, weight: .black)).opacity(0.3)
                             Text(food.name).font(.title3.bold())
                             Spacer()
-                            Text("\(food.count) ครั้ง")
+                            Text(t.wrappedTimes(food.count))
                                 .font(.caption.bold())
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 6)
@@ -161,19 +162,21 @@ struct WrappedStoryView: View {
 
     private var summaryCard: some View {
         VStack(spacing: 16) {
-            summaryRow("STREAK สูงสุด", "\(data.maxStreak) วัน", tint: Palette.orange)
-            summaryRow("อาหารที่บันทึก", "\(data.totalFoodItems) รายการ", tint: Palette.greenDeep)
-            summaryRow("เป้าหมายน้ำ", "\(data.totalWater.formatted()) ml", tint: Palette.blueDeep)
+            summaryRow(t.wrappedMaxStreak, t.days(data.maxStreak), tint: Color(hex: 0xF97316))
+            summaryRow(t.wrappedFoodsLogged, t.wrappedItems(data.totalFoodItems), tint: Color(hex: 0x16A34A))
+            summaryRow(t.wrappedTotalWater, "\(data.totalWater.formatted()) ml", tint: Color(hex: 0x2563EB))
 
-            Divider().background(Palette.border)
+            Rectangle().fill(Color(hex: 0xF1F5F9)).frame(height: 1)
 
             HStack(spacing: 8) {
                 Text("C")
                     .font(.caption2.bold())
                     .foregroundStyle(.white)
                     .frame(width: 28, height: 28)
-                    .background(Palette.green, in: Circle())
-                Text("CalorieFlow \(String(data.year))").font(.headline).foregroundStyle(Palette.ink)
+                    .background(Color(hex: 0x22C55E), in: Circle())
+                Text("CalorieFlow \(String(data.year))")
+                    .font(.headline)
+                    .foregroundStyle(Color(hex: 0x1E293B))
             }
         }
         .padding(24)
@@ -185,19 +188,9 @@ struct WrappedStoryView: View {
             Text(caption)
                 .font(.system(size: 10, weight: .black))
                 .tracking(1)
-                .foregroundStyle(Palette.inkFaint)
+                .foregroundStyle(Color(hex: 0x94A3B8))
             Spacer()
             Text(value).font(.title3.weight(.black)).foregroundStyle(tint)
-        }
-    }
-
-    private func title(for step: Int) -> String {
-        switch step {
-        case 0: return "ปีที่ผ่านมายอดเยี่ยมมาก!"
-        case 1: return "พลังงานที่คุณเติมเต็ม"
-        case 2: return "ความชุ่มชื้นไม่เคยขาด"
-        case 3: return "เมนูโปรดของคุณ"
-        default: return "สรุปการเดินทาง"
         }
     }
 
@@ -230,6 +223,7 @@ struct WrappedStoryView: View {
         }
         .foregroundStyle(.white)
         .frame(width: 375, height: 667)
+        .environment(\.l10n, t)
 
         if let image = ImageExport.render(card) {
             shareItem = ShareItem(image: image)

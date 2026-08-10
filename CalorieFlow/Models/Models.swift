@@ -14,16 +14,6 @@ enum ActivityLevel: Double, Codable, CaseIterable, Identifiable {
     case extraActive = 1.9        // หนักมาก / วันละ 2 เวลา
 
     var id: Double { rawValue }
-
-    var label: String {
-        switch self {
-        case .sedentary: return "ไม่ออกกำลังกาย / น้อยมาก"
-        case .lightlyActive: return "ออกกำลังกายเบาๆ (1-3 วัน/สัปดาห์)"
-        case .moderatelyActive: return "ออกกำลังกายปานกลาง (3-5 วัน)"
-        case .veryActive: return "ออกกำลังกายหนัก (6-7 วัน)"
-        case .extraActive: return "หนักมาก (วันละ 2 เวลา)"
-        }
-    }
 }
 
 enum GoalType: String, Codable, CaseIterable, Identifiable {
@@ -32,14 +22,6 @@ enum GoalType: String, Codable, CaseIterable, Identifiable {
     case gain
 
     var id: String { rawValue }
-
-    var label: String {
-        switch self {
-        case .lose: return "ลดน้ำหนัก"
-        case .maintain: return "รักษาน้ำหนัก"
-        case .gain: return "เพิ่มน้ำหนัก"
-        }
-    }
 
     var systemImage: String {
         switch self {

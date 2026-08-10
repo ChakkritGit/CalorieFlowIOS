@@ -3,49 +3,50 @@ import Charts
 
 struct StatsView: View {
     @Environment(AppStore.self) private var store
+    @Environment(\.l10n) private var t
 
     private var avgCalIsOver: Bool { store.weeklyAverageCalories > store.dailyTarget }
     private var avgWaterIsGood: Bool { store.weeklyAverageWater >= store.user.waterGoal }
 
     var body: some View {
-        ScreenScroll(title: "สถิติภาพรวม") {
+        ScreenScroll(title: t.statsTitle) {
             chartCard(
-                title: "แคลอรี่รายสัปดาห์",
+                title: t.weeklyCalories,
                 icon: nil,
-                bars: store.weeklyData.map { ($0.label, $0.calories) },
+                values: store.weeklyData.map(\.calories),
                 tint: Palette.green,
                 goal: store.dailyTarget,
-                footnote: "เส้นประคือเป้าหมาย TDEE ปัจจุบันของคุณ"
+                footnote: t.tdeeFootnote
             )
 
             chartCard(
-                title: "ปริมาณน้ำรายสัปดาห์",
+                title: t.weeklyWater,
                 icon: "drop.fill",
-                bars: store.weeklyData.map { ($0.label, $0.water) },
+                values: store.weeklyData.map(\.water),
                 tint: Palette.blue,
                 goal: store.user.waterGoal,
-                footnote: "เส้นประคือเป้าหมายการดื่มน้ำ (\(store.user.waterGoal) ml)"
+                footnote: t.waterFootnote(store.user.waterGoal)
             )
 
             averageCard(
-                caption: "ค่าเฉลี่ยสัปดาห์นี้",
+                caption: t.weeklyAverageCaption,
                 value: store.weeklyAverageCalories,
-                unit: "kcal/วัน",
+                unit: t.kcalPerDay,
                 valueTint: avgCalIsOver ? Palette.red : Palette.greenDeep,
                 trendUp: avgCalIsOver,
-                note: avgCalIsOver ? "เกินเป้าหมายเฉลี่ย" : "ทำได้ดีมาก! ต่ำกว่าเป้า",
+                note: avgCalIsOver ? t.aboveGoal : t.belowGoal,
                 icon: "target",
                 iconTint: avgCalIsOver ? Palette.red : Palette.green,
-                iconBackground: avgCalIsOver ? Palette.red.opacity(0.1) : Palette.greenSoft
+                iconBackground: avgCalIsOver ? Palette.red.opacity(0.12) : Palette.greenSoft
             )
 
             averageCard(
-                caption: "เฉลี่ยดื่มน้ำสัปดาห์นี้",
+                caption: t.weeklyWaterAverageCaption,
                 value: store.weeklyAverageWater,
-                unit: "ml/วัน",
+                unit: t.mlPerDay,
                 valueTint: avgWaterIsGood ? Palette.greenDeep : Palette.blueDeep,
                 trendUp: avgWaterIsGood,
-                note: avgWaterIsGood ? "ยอดเยี่ยม! ถึงเป้าหมาย" : "พยายามอีกนิดนะ",
+                note: avgWaterIsGood ? t.waterGoalMet : t.waterGoalMissed,
                 icon: "drop.fill",
                 iconTint: avgWaterIsGood ? Palette.green : Palette.blue,
                 iconBackground: avgWaterIsGood ? Palette.greenSoft : Palette.blueSoft
@@ -53,14 +54,14 @@ struct StatsView: View {
 
             HStack(spacing: 16) {
                 miniStat(
-                    caption: "STREAK ปัจจุบัน",
-                    value: "\(store.user.streak) วัน",
+                    caption: t.currentStreakCaption,
+                    value: t.days(store.user.streak),
                     tint: Palette.orange,
                     icon: "flame.fill"
                 )
                 miniStat(
-                    caption: "เป้าหมาย TDEE",
-                    value: "\(store.dailyTarget) kcal",
+                    caption: t.tdeeGoalCaption,
+                    value: "\(store.dailyTarget) \(t.kcal)",
                     tint: Palette.ink,
                     icon: nil
                 )
@@ -73,7 +74,7 @@ struct StatsView: View {
     private func chartCard(
         title: String,
         icon: String?,
-        bars: [(String, Int)],
+        values: [Int],
         tint: Color,
         goal: Int,
         footnote: String
@@ -85,27 +86,25 @@ struct StatsView: View {
             }
 
             Chart {
-                ForEach(Array(bars.enumerated()), id: \.offset) { index, bar in
+                ForEach(Array(zip(store.weeklyData, values)), id: \.0.id) { point, value in
                     BarMark(
-                        x: .value("วัน", "\(index)-\(bar.0)"),
-                        y: .value("ค่า", bar.1),
+                        x: .value("Day", point.date, unit: .day),
+                        y: .value("Value", value),
                         width: 20
                     )
                     .foregroundStyle(tint)
                     .cornerRadius(6)
                 }
 
-                RuleMark(y: .value("เป้าหมาย", goal))
+                RuleMark(y: .value("Goal", goal))
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
                     .foregroundStyle(Palette.track)
             }
             .chartXAxis {
-                AxisMarks { value in
+                AxisMarks(values: store.weeklyData.map(\.date)) { value in
                     AxisValueLabel {
-                        // ตัด index ที่ใส่ไว้กันชื่อวันซ้ำกันออกก่อนแสดงผล
-                        if let raw = value.as(String.self),
-                           let label = raw.split(separator: "-", maxSplits: 1).last {
-                            Text(String(label))
+                        if let date = value.as(Date.self) {
+                            Text(date.shortWeekday(locale: t.locale))
                                 .font(.caption2)
                                 .foregroundStyle(Palette.inkFaint)
                         }
@@ -175,6 +174,7 @@ struct StatsView: View {
                 .font(.system(size: 10, weight: .bold))
                 .tracking(1.2)
                 .foregroundStyle(Palette.inkFaint)
+                .multilineTextAlignment(.center)
             HStack(spacing: 6) {
                 if let icon { Image(systemName: icon) }
                 Text(value)

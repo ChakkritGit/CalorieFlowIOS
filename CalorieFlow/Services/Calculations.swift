@@ -50,17 +50,17 @@ enum DateKey {
 }
 
 extension Date {
-    /// เช่น "อา. 12" — ใช้บนแกน X ของกราฟและหัวข้อประวัติ
-    var shortThaiWeekday: String {
+    /// เช่น "อา. 12" / "Sun 12" — ใช้บนแกน X ของกราฟและหัวข้อประวัติ
+    func shortWeekday(locale: Locale) -> String {
         let f = DateFormatter()
-        f.locale = Locale(identifier: "th_TH")
+        f.locale = locale
         f.setLocalizedDateFormatFromTemplate("EEEEEE d")
         return f.string(from: self)
     }
 
-    var thaiTime: String {
+    func timeOfDay(locale: Locale) -> String {
         let f = DateFormatter()
-        f.locale = Locale(identifier: "th_TH")
+        f.locale = locale
         f.dateFormat = "HH:mm"
         return f.string(from: self)
     }

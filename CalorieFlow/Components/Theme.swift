@@ -1,28 +1,39 @@
 import SwiftUI
+import UIKit
 
-/// สีชุดเดียวกับ Tailwind ที่เวอร์ชันเว็บใช้ เพื่อให้หน้าตาตรงกัน
+/// สีของแอป — ปรับตามธีมสว่าง/มืดอัตโนมัติ
+///
+/// ใช้ `UIColor` แบบ dynamic แทนการอ่าน `@Environment(\.colorScheme)` ในทุก view
+/// เพราะสีจะถูก resolve ตาม trait ของแต่ละ view เอง รวมถึงตอน `ImageRenderer`
+/// เรนเดอร์การ์ดแชร์ด้วย
 enum Palette {
-    static let background = Color(hex: 0xF8FAFC)   // slate-50
-    static let card = Color.white
-    static let border = Color(hex: 0xF1F5F9)       // slate-100
+    static let background = adaptive(light: 0xF8FAFC, dark: 0x0B1120)
+    static let card = adaptive(light: 0xFFFFFF, dark: 0x1B263B)
+    static let border = adaptive(light: 0xF1F5F9, dark: 0x2C3A52)
 
-    static let ink = Color(hex: 0x1E293B)          // slate-800
-    static let inkSoft = Color(hex: 0x64748B)      // slate-500
-    static let inkFaint = Color(hex: 0x94A3B8)     // slate-400
+    static let ink = adaptive(light: 0x1E293B, dark: 0xF1F5F9)
+    static let inkSoft = adaptive(light: 0x64748B, dark: 0xA0AEC0)
+    static let inkFaint = adaptive(light: 0x94A3B8, dark: 0x7A8AA3)
 
-    static let green = Color(hex: 0x22C55E)
-    static let greenDeep = Color(hex: 0x16A34A)
-    static let greenSoft = Color(hex: 0xDCFCE7)
+    static let green = adaptive(light: 0x22C55E, dark: 0x34D399)
+    static let greenDeep = adaptive(light: 0x16A34A, dark: 0x4ADE80)
+    static let greenSoft = adaptive(light: 0xDCFCE7, dark: 0x14532D)
 
-    static let blue = Color(hex: 0x3B82F6)
-    static let blueDeep = Color(hex: 0x2563EB)
-    static let blueSoft = Color(hex: 0xEFF6FF)
+    static let blue = adaptive(light: 0x3B82F6, dark: 0x60A5FA)
+    static let blueDeep = adaptive(light: 0x2563EB, dark: 0x93C5FD)
+    static let blueSoft = adaptive(light: 0xEFF6FF, dark: 0x1E3A5F)
 
-    static let red = Color(hex: 0xEF4444)
-    static let orange = Color(hex: 0xFB923C)
-    static let purple = Color(hex: 0x9333EA)
-    static let pink = Color(hex: 0xEC4899)
-    static let track = Color(hex: 0xE5E7EB)        // gray-200
+    static let red = adaptive(light: 0xEF4444, dark: 0xF87171)
+    static let orange = adaptive(light: 0xFB923C, dark: 0xFDBA74)
+    static let purple = adaptive(light: 0x9333EA, dark: 0xC084FC)
+    static let pink = adaptive(light: 0xEC4899, dark: 0xF472B6)
+    static let track = adaptive(light: 0xE5E7EB, dark: 0x334155)
+
+    private static func adaptive(light: UInt32, dark: UInt32) -> Color {
+        Color(uiColor: UIColor { trait in
+            UIColor(rgb: trait.userInterfaceStyle == .dark ? dark : light)
+        })
+    }
 }
 
 extension Color {
@@ -36,7 +47,18 @@ extension Color {
     }
 }
 
-/// การ์ดสีขาวมุมมนพร้อมเงาบาง — ใช้ซ้ำทุกหน้า (เทียบเท่า `bg-white rounded-3xl shadow-sm`)
+extension UIColor {
+    convenience init(rgb: UInt32) {
+        self.init(
+            red: CGFloat((rgb >> 16) & 0xFF) / 255,
+            green: CGFloat((rgb >> 8) & 0xFF) / 255,
+            blue: CGFloat(rgb & 0xFF) / 255,
+            alpha: 1
+        )
+    }
+}
+
+/// การ์ดมุมมนพร้อมเงาบาง — ใช้ซ้ำทุกหน้า (เทียบเท่า `bg-white rounded-3xl shadow-sm`)
 struct CardModifier: ViewModifier {
     var padding: CGFloat = 24
 
@@ -49,7 +71,7 @@ struct CardModifier: ViewModifier {
                 RoundedRectangle(cornerRadius: 28, style: .continuous)
                     .strokeBorder(Palette.border, lineWidth: 1)
             )
-            .shadow(color: .black.opacity(0.04), radius: 8, y: 2)
+            .shadow(color: .black.opacity(0.05), radius: 8, y: 2)
     }
 }
 
@@ -57,13 +79,37 @@ extension View {
     func cardStyle(padding: CGFloat = 24) -> some View {
         modifier(CardModifier(padding: padding))
     }
+
+    /// ช่องกรอกข้อมูลสไตล์เดียวกับเวอร์ชันเว็บ (`bg-slate-50 rounded-xl`)
+    func inputFieldStyle() -> some View {
+        padding(16)
+            .background(Palette.background, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(Palette.border, lineWidth: 1)
+            )
+    }
+}
+
+/// หัวข้อหมวดหมู่ในหน้าตั้งค่า
+struct SectionHeader: View {
+    let title: String
+
+    var body: some View {
+        Text(title)
+            .font(.system(size: 11, weight: .black))
+            .tracking(1.5)
+            .foregroundStyle(Palette.inkFaint)
+            .padding(.horizontal, 8)
+            .padding(.top, 4)
+    }
 }
 
 /// แถบความคืบหน้าแนวนอนมุมมน
 struct ProgressBar: View {
     var value: Double          // 0...1
     var tint: Color
-    var track: Color = Palette.border
+    var track: Color = Palette.track
     var height: CGFloat = 12
 
     var body: some View {

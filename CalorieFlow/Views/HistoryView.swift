@@ -2,6 +2,7 @@ import SwiftUI
 
 struct HistoryView: View {
     @Environment(AppStore.self) private var store
+    @Environment(\.l10n) private var t
 
     @State private var selectedDate = DateKey.today
     @State private var viewMonth = Date.now
@@ -14,7 +15,7 @@ struct HistoryView: View {
     }
 
     var body: some View {
-        ScreenScroll(title: "ประวัติการบันทึก") {
+        ScreenScroll(title: t.historyTitle) {
             CalendarGrid(
                 month: $viewMonth,
                 selectedDate: $selectedDate,
@@ -22,32 +23,32 @@ struct HistoryView: View {
             )
 
             VStack(alignment: .leading, spacing: 16) {
-                Text(DateKey.date(from: selectedDate)?.shortThaiWeekday ?? selectedDate)
+                Text(DateKey.date(from: selectedDate)?.shortWeekday(locale: t.locale) ?? selectedDate)
                     .font(.headline)
                     .foregroundStyle(Palette.ink)
 
                 if let log, hasData {
-                    summaryRow("รวมแคลอรี่", "\(log.totalCalories) kcal", tint: Palette.greenDeep)
-                    summaryRow("ดื่มน้ำ", "\(log.waterIntake) ml", tint: Palette.blueDeep)
+                    summaryRow(t.totalCalories, "\(log.totalCalories) \(t.kcal)", tint: Palette.greenDeep)
+                    summaryRow(t.waterShort, "\(log.waterIntake) ml", tint: Palette.blueDeep)
 
                     ForEach(log.foods) { food in
                         HStack {
                             Text(food.name).font(.subheadline).foregroundStyle(Palette.inkSoft)
                             Spacer()
-                            Text("\(food.calories) kcal")
+                            Text("\(food.calories) \(t.kcal)")
                                 .font(.subheadline.weight(.medium))
                                 .foregroundStyle(Palette.ink)
                         }
                     }
 
                     if log.foods.isEmpty {
-                        Text("ไม่มีรายการอาหาร")
+                        Text(t.noFoodItems)
                             .font(.caption2)
                             .foregroundStyle(Palette.inkFaint)
                             .frame(maxWidth: .infinity)
                     }
                 } else {
-                    Text("ไม่มีการบันทึกข้อมูลในวันนี้")
+                    Text(t.nothingLogged)
                         .foregroundStyle(Palette.inkFaint)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 24)
@@ -64,23 +65,20 @@ struct HistoryView: View {
                 Spacer()
                 Text(value).font(.subheadline.bold()).foregroundStyle(tint)
             }
-            Divider().background(Palette.border)
+            Rectangle().fill(Palette.border).frame(height: 1)
         }
     }
 }
 
-/// ปฏิทินรายเดือน พร้อมจุดบอกวันที่มีข้อมูล — พุทธศักราชเหมือนเวอร์ชันเว็บ
+/// ปฏิทินรายเดือน พร้อมจุดบอกวันที่มีข้อมูล — ไทยแสดง พ.ศ. อังกฤษแสดง ค.ศ.
 struct CalendarGrid: View {
     @Binding var month: Date
     @Binding var selectedDate: String
     let markedDates: Set<String>
 
+    @Environment(\.l10n) private var t
+
     private let calendar = Calendar(identifier: .gregorian)
-    private let weekdaySymbols = ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"]
-    private let monthNames = [
-        "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
-        "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"
-    ]
 
     private var year: Int { calendar.component(.year, from: month) }
     private var monthIndex: Int { calendar.component(.month, from: month) }
@@ -101,7 +99,7 @@ struct CalendarGrid: View {
             HStack {
                 stepButton(-1, icon: "chevron.left")
                 Spacer()
-                Text("\(monthNames[monthIndex - 1]) \(String(year + 543))")
+                Text(t.calendarHeader(year: year, monthIndex: monthIndex))
                     .font(.headline)
                     .foregroundStyle(Palette.ink)
                 Spacer()
@@ -109,7 +107,7 @@ struct CalendarGrid: View {
             }
 
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 7), spacing: 4) {
-                ForEach(weekdaySymbols, id: \.self) { symbol in
+                ForEach(Array(t.weekdaySymbols.enumerated()), id: \.offset) { _, symbol in
                     Text(symbol)
                         .font(.system(size: 10, weight: .bold))
                         .foregroundStyle(Palette.inkFaint)
@@ -151,7 +149,7 @@ struct CalendarGrid: View {
                 if isSelected { Circle().fill(Palette.green) }
                 Text("\(day)")
                     .font(.system(size: 14, weight: isSelected ? .bold : .regular))
-                    .foregroundStyle(isSelected ? .white : Palette.inkSoft)
+                    .foregroundStyle(isSelected ? Palette.card : Palette.inkSoft)
                 if isMarked && !isSelected {
                     Circle()
                         .fill(Palette.green)
