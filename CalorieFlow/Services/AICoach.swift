@@ -43,6 +43,13 @@ final class AICoach {
     /// เก็บเป็น `Any` เพราะชนิดจริงมีเฉพาะบน iOS 26 ขึ้นไป
     private var chatSession: Any?
 
+    /// โมเดล Core ML — ใช้เมื่อไม่มี Apple Intelligence สร้างครั้งแรกที่ต้องใช้จริง
+    /// เพราะการโหลดกินเวลาหลายวินาทีและกินแรมกว่า 1 GB
+    private var coreMLBackend: CoreMLBackend?
+
+    /// กันไม่ให้ลองโหลดซ้ำทุกครั้งที่ผู้ใช้ขอคำแนะนำ หลังจากที่รู้แล้วว่าโหลดไม่ได้
+    private var coreMLFailed = false
+
     init() {
         isEnabled = UserDefaults.standard.object(forKey: "calorieflow_ai_enabled") as? Bool ?? true
         status = Self.currentStatus()
@@ -51,22 +58,34 @@ final class AICoach {
     /// ใช้โมเดลได้จริงก็ต่อเมื่อรองรับ *และ* ผู้ใช้ไม่ได้ปิดไว้
     var usesModel: Bool { isEnabled && status.isReady }
 
+    /// สถานะรวมของทั้งสอง backend — พร้อมใช้ถ้าตัวใดตัวหนึ่งใช้ได้
+    ///
+    /// เช็ก Core ML ด้วยการดูว่ามีไฟล์อยู่จริงไหม ซึ่งเป็นการอ่านดิสก์ครั้งเดียว
+    /// ไม่ใช่การโหลดโมเดล จึงเรียกจาก `init` ได้โดยไม่หน่วงการเปิดแอป
     private static func currentStatus() -> Status {
-        guard #available(iOS 26.0, *) else {
-            return .unsupported(reason: "requiresOS")
+        if #available(iOS 26.0, *) {
+            switch SystemLanguageModel.default.availability {
+            case .available:
+                return .ready
+            case .unavailable(.deviceNotEligible):
+                if coreMLIsInstalled { return .ready }
+                return .unsupported(reason: "deviceNotEligible")
+            case .unavailable(.appleIntelligenceNotEnabled):
+                if coreMLIsInstalled { return .ready }
+                return .unsupported(reason: "notEnabled")
+            case .unavailable(.modelNotReady):
+                if coreMLIsInstalled { return .ready }
+                return .unsupported(reason: "modelNotReady")
+            case .unavailable:
+                if coreMLIsInstalled { return .ready }
+                return .unsupported(reason: "unknown")
+            }
         }
-        switch SystemLanguageModel.default.availability {
-        case .available:
-            return .ready
-        case .unavailable(.deviceNotEligible):
-            return .unsupported(reason: "deviceNotEligible")
-        case .unavailable(.appleIntelligenceNotEnabled):
-            return .unsupported(reason: "notEnabled")
-        case .unavailable(.modelNotReady):
-            return .unsupported(reason: "modelNotReady")
-        case .unavailable:
-            return .unsupported(reason: "unknown")
-        }
+        return coreMLIsInstalled ? .ready : .unsupported(reason: "requiresOS")
+    }
+
+    private static var coreMLIsInstalled: Bool {
+        ModelStore.compiledModelURL != nil && ModelStore.tokenizerFolderURL != nil
     }
 
     /// ข้อความอธิบายสาเหตุที่ใช้ AI ไม่ได้ แปลตามภาษาที่เลือก
@@ -81,7 +100,7 @@ final class AICoach {
     @MainActor
     func dailyTip(_ context: AdviceContext, _ t: L10n) async -> String {
         let fallback = RuleBasedAdvisor.dailyTip(context, t)
-        guard usesModel, #available(iOS 26.0, *) else { return fallback }
+        guard usesModel else { return fallback }
 
         let prompt = """
         \(t.aiPromptLanguageRule)
@@ -106,7 +125,7 @@ final class AICoach {
     @MainActor
     func weeklySummary(_ context: AdviceContext, _ t: L10n) async -> String {
         let fallback = RuleBasedAdvisor.weeklySummary(context, t)
-        guard usesModel, #available(iOS 26.0, *) else { return fallback }
+        guard usesModel else { return fallback }
 
         let prompt = """
         \(t.aiPromptLanguageRule)
@@ -155,6 +174,19 @@ final class AICoach {
             }
         }
 
+        // Core ML ไม่มี guided generation จึงต้องขอเป็นตัวเลขล้วนแล้วดึงเอง
+        // จำกัดช่วงที่รับไว้กันโมเดลเล็กตอบเลขหลุดโลก เช่นปีหรือน้ำหนัก
+        if usesModel, let backend = await coreML() {
+            let answer = try? await backend.respond(
+                instructions: t.aiSystemInstructions,
+                prompt: "\(t.aiPromptEstimateTask)\n\(t.aiPromptDishField): \(trimmed)",
+                maxNewTokens: 12
+            )
+            if let digits = answer?.firstIntegerValue, (10...3000).contains(digits) {
+                return CalorieGuess(calories: digits, note: t.aiEstimateFromTable, fromModel: true)
+            }
+        }
+
         guard let table = RuleBasedAdvisor.estimateCalories(for: trimmed) else { return nil }
         return CalorieGuess(calories: table, note: t.aiEstimateFromTable, fromModel: false)
     }
@@ -189,24 +221,44 @@ final class AICoach {
         isResponding = true
         defer { isResponding = false }
 
-        guard usesModel, #available(iOS 26.0, *) else {
+        guard usesModel else {
             chat.append(ChatMessage(role: .coach, text: RuleBasedAdvisor.dailyTip(context, t)))
             return
         }
 
-        if chatSession == nil { resetChat(context, t) }
-
-        guard let session = chatSession as? LanguageModelSession else {
-            chat.append(ChatMessage(role: .coach, text: RuleBasedAdvisor.dailyTip(context, t)))
-            return
+        if #available(iOS 26.0, *), case .ready = Self.foundationModelsStatus() {
+            if chatSession == nil { resetChat(context, t) }
+            if let session = chatSession as? LanguageModelSession,
+               let response = try? await session.respond(to: question) {
+                chat.append(ChatMessage(role: .coach, text: response.content))
+                return
+            }
         }
 
-        do {
-            let response = try await session.respond(to: question)
-            chat.append(ChatMessage(role: .coach, text: response.content))
-        } catch {
-            chat.append(ChatMessage(role: .coach, text: t.aiChatFailed))
+        // Core ML ไม่มีเซสชันในตัว จึงต้องส่งบทสนทนาที่ผ่านมาไปใหม่ทุกครั้ง
+        // ตัดเหลือหกเทิร์นล่าสุดกันไม่ให้ prompt ยาวเกินหน้าต่างบริบท
+        if let backend = await coreML() {
+            let history = chat.dropLast().suffix(6).map { message in
+                (role: message.role == .user ? "user" : "assistant", text: message.text)
+            }
+            let instructions = """
+            \(t.aiSystemInstructions)
+
+            \(t.aiChatInstructions)
+
+            \(contextBlock(context, t))
+            """
+            if let text = try? await backend.respond(
+                instructions: instructions,
+                history: Array(history),
+                prompt: question
+            ), !text.isEmpty {
+                chat.append(ChatMessage(role: .coach, text: text))
+                return
+            }
         }
+
+        chat.append(ChatMessage(role: .coach, text: t.aiChatFailed))
     }
 
     // MARK: - Shared
@@ -225,15 +277,51 @@ final class AICoach {
         """
     }
 
-    @available(iOS 26.0, *)
+    /// ลำดับ backend: Foundation Models → Core ML → `RuleBasedAdvisor`
+    ///
+    /// ทุกชั้นล้มแล้วตกชั้นถัดไปเงียบ ๆ ผู้ใช้เห็นคำตอบเสมอ ต่างกันแค่คุณภาพ
+    @MainActor
     private func respond(to prompt: String, instructions: String, fallback: String) async -> String {
+        if #available(iOS 26.0, *), case .ready = Self.foundationModelsStatus() {
+            do {
+                let session = LanguageModelSession { instructions }
+                let response = try await session.respond(to: prompt)
+                let text = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !text.isEmpty { return text }
+            } catch {
+                // ตกไปใช้ Core ML ด้านล่าง
+            }
+        }
+
+        if let backend = await coreML(),
+           let text = try? await backend.respond(instructions: instructions, prompt: prompt),
+           !text.isEmpty {
+            return text
+        }
+
+        return fallback
+    }
+
+    /// สถานะเฉพาะของ Foundation Models ไม่รวม Core ML — ใช้ตัดสินว่าจะลองชั้นแรกไหม
+    private static func foundationModelsStatus() -> Status {
+        guard #available(iOS 26.0, *) else { return .unsupported(reason: "requiresOS") }
+        if case .available = SystemLanguageModel.default.availability { return .ready }
+        return .unsupported(reason: "unknown")
+    }
+
+    /// โหลดโมเดล Core ML ครั้งแรกที่เรียก ครั้งถัดไปใช้ตัวเดิม
+    @MainActor
+    private func coreML() async -> CoreMLBackend? {
+        guard isEnabled, !coreMLFailed else { return nil }
+        if let existing = coreMLBackend { return existing }
+
         do {
-            let session = LanguageModelSession { instructions }
-            let response = try await session.respond(to: prompt)
-            let text = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
-            return text.isEmpty ? fallback : text
+            let backend = try await CoreMLBackend()
+            coreMLBackend = backend
+            return backend
         } catch {
-            return fallback
+            coreMLFailed = true
+            return nil
         }
     }
 }
@@ -248,4 +336,12 @@ struct DishEstimate {
 
     @Guide(description: "A very short note about the assumed portion size. At most 12 words.")
     var note: String
+}
+
+private extension String {
+    /// จำนวนเต็มตัวแรกที่พบในข้อความ ใช้ดึงตัวเลขจากคำตอบที่ไม่มีโครงสร้าง
+    var firstIntegerValue: Int? {
+        let digits = drop { !$0.isNumber }.prefix { $0.isNumber }
+        return digits.isEmpty ? nil : Int(digits)
+    }
 }

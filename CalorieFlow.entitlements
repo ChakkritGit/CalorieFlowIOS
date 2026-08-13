@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- โมเดล Qwen 4-bit กินแรมราว 1.2 GB ตอน inference ซึ่งเกินเพดานปกติของแอป
+	     บนเครื่องแรม 6 GB ถ้าไม่ขอสิทธิ์นี้ระบบจะฆ่าแอปทิ้งกลางคัน -->
+	<key>com.apple.developer.kernel.increased-memory-limit</key>
+	<true/>
+</dict>
+</plist>

@@ -1,4 +1,4 @@
-# Checkpoint — สถานะงาน ณ 2026-08-10
+# Checkpoint — สถานะงาน ณ 2026-08-13
 
 เอกสารส่งต่อสำหรับ session ถัดไป อ่านไฟล์นี้ก่อนเริ่มงาน
 
@@ -6,81 +6,92 @@
 
 พอร์ตแอป **CalorieFlow** จากเว็บ (React + Vite + Tailwind) เป็น iOS เนทีฟด้วย SwiftUI
 
-- ต้นฉบับเว็บ: https://github.com/ChakkritGit/CalorieFlow — โคลนไว้ที่ `D:\Project\CalorieFlow-web\`
-- ปลายทาง iOS: https://github.com/ChakkritGit/CalorieFlowIOS — อยู่ที่ `D:\Project\CalorieFlow-iOS\`
-- เครื่องที่ใช้ทำงานเป็น **Windows** จึง **ยังไม่เคยคอมไพล์เลยสักครั้ง** — นี่คือความเสี่ยงที่ค้างอยู่ข้อใหญ่สุด
+- ต้นฉบับเว็บ: https://github.com/ChakkritGit/CalorieFlow
+- ปลายทาง iOS: https://github.com/ChakkritGit/CalorieFlowIOS
+- **ย้ายมาทำงานบน macOS แล้ว** (Xcode 27 beta อยู่ที่ `/Applications/Xcode-beta.app`)
+  ยังไม่ได้ `xcode-select` ต้องสั่ง build ด้วย
+  `DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer xcodebuild ...`
 
-## เสร็จแล้ว (push ขึ้น main หมดแล้ว)
+## เสร็จแล้ว
 
 | commit | เนื้อหา |
 | --- | --- |
 | `4c9d06e` | พอร์ตทั้งแอปจากเว็บเป็น SwiftUI ครบทุกฟีเจอร์ |
-| `9f5e39b` | ย้ายไป `TabView` + ระบบธีม (system/light/dark) + ระบบภาษา (ไทย/English) + จัดหน้าตั้งค่าเป็นหมวด |
+| `9f5e39b` | `TabView` + ระบบธีม + ระบบภาษา |
 | `da073da` | AI coach ด้วย Foundation Models + fallback แบบกฎธรรมดา |
-| `61632bf` | `.gitignore` กันไฟล์โมเดล Core ML หลุดเข้า repo |
+| `61632bf` | `.gitignore` กันไฟล์โมเดล Core ML |
+| (รอบนี้) | build ผ่านครั้งแรก + Core ML backend + สคริปต์แปลงโมเดลตัวใหม่ |
 
-รายละเอียดสถาปัตยกรรมและการแมปเทคโนโลยีอยู่ใน `README.md`
+**build ผ่านแล้ว** — ความเสี่ยงข้อใหญ่ที่ค้างมาจาก session ก่อนหมดไป
+`AICoach.swift` ที่เขียน FoundationModels API จากความจำคอมไพล์ผ่านโดยไม่ต้องแก้อะไรเลย
+เช่นเดียวกับ pbxproj ที่เขียนมือ, Swift Charts, และ `@Bindable`
 
 ## ค้างอยู่ — งานถัดไป
 
-### 1. รอไฟล์โมเดล Core ML จากผู้ใช้ (งานหลักที่ค้าง)
+### 1. แปลงโมเดลใหม่ (บล็อกทุกอย่างที่เหลือ)
 
-ผู้ใช้เลือก **Qwen 2.5 1.5B Instruct** จะโหลดจาก HuggingFace แล้วแปลงเป็น `.mlpackage`
-ด้วย Python เองแล้วส่งไฟล์มาให้
+ไฟล์ `Qwen.mlpackage` ที่แปลงมารอบแรก **ใช้งานจริงไม่ได้** เพราะสามข้อ
 
-**สิ่งที่ต้องได้จากผู้ใช้ก่อนเขียนโค้ดได้:**
+1. `SEQ_LEN = 32` ตายตัว — prompt + คำตอบรวมกันได้แค่ 32 token
+2. `use_cache=False` — ไม่มี KV cache ทุก token ต้องคำนวณทั้ง sequence ใหม่
+3. fp16 ไม่ quantize → 2.9 GB — iOS โหลดไม่ขึ้น
 
-1. ไฟล์ `.mlpackage` (อาจมีหลายไฟล์ ถ้าใช้ Anemll จะถูกแบ่งเป็น chunk: embeddings / FFN / lm_head)
-2. `tokenizer.json` + `tokenizer_config.json`
-3. **สคริปต์ที่ใช้แปลง** — บอก input/output signature
-4. ผลของ `ct.models.MLModel(path).get_spec().description` — ชื่อและ shape ของ input/output/state
+`LLM/convert.py` **ถูกเขียนใหม่ทั้งไฟล์แล้ว** แก้ครบทั้งสามข้อ (stateful KV cache ผ่าน
+`ct.StateType`, `RangeDim` ให้ความยาวยืดหยุ่น, quantize int4 per-block → ~1.1 GB)
+สิ่งที่ต้องทำคือ**รันสคริปต์นี้บน Colab** แล้วเอา `.mlpackage` ที่ได้มาแทนของเดิม
 
-**สิ่งที่ต้องทำเมื่อได้ไฟล์แล้ว:**
+รันเสร็จแล้วสคริปต์จะพิมพ์ signature ออกมา — **ต้องเทียบกับที่ฝั่ง Swift คาดไว้**
+ถ้าไม่ตรงต้องแก้ `CoreMLBackend.predict`
 
-- เขียน `Services/CoreMLBackend.swift` เสียบเข้า `AICoach` เป็น backend ตัวที่สาม
-  ลำดับความสำคัญ: Foundation Models → Core ML → `RuleBasedAdvisor`
-- เพิ่ม SPM dependency `huggingface/swift-transformers` (Core ML ไม่ทำ tokenization ให้)
-- ขยับ `IPHONEOS_DEPLOYMENT_TARGET` เป็น 18.0 (stateful KV cache ต้องใช้ iOS 18+)
-- เพิ่ม entitlement `com.apple.developer.kernel.increased-memory-limit` (โมเดลกิน RAM ~1.2 GB)
-- ทำระบบดาวน์โหลดโมเดลตอนเปิดแอปครั้งแรก (Background Assets) **ห้าม bundle เข้า repo**
+| | ชื่อ | shape |
+| --- | --- | --- |
+| input | `input_ids` | `[1, 1…512]` INT32 |
+| input | `causal_mask` | `[1, 1, 1…512, 1…512]` FLOAT16 |
+| state | `keyCache` / `valueCache` | `[28, 1, 2, 512, 128]` FLOAT16 |
+| output | `logits` | `[1, query_len, 151936]` FLOAT16 |
 
-**คำถามที่ถามผู้ใช้ไว้แล้วแต่ยังไม่ได้คำตอบ:** อยากให้ Core ML เป็น backend หลัก
-(ใช้ทุกเครื่อง ภาษาไทยดีกว่า แต่แอปโตขึ้น ~1 GB) หรือเป็นแค่ fallback ให้เครื่องที่ไม่มี
-Apple Intelligence — ที่แนะนำไปคืออย่างหลัง
+### 2. ตัวดาวน์โหลดโมเดล — ยังไม่ได้ทำ
 
-### 2. ยังไม่เคย build
+`ModelStore` ใน `Services/CoreMLBackend.swift` ตอนนี้แค่ *หา* ไฟล์ใน Application Support
+ยังไม่มีตัวโหลด ต้องเพิ่ม:
 
-ต้องรันบน macOS + Xcode 16 อย่างน้อยหนึ่งรอบ จุดที่มีโอกาสพังสูงสุดเรียงตามลำดับ:
+- โฮสต์ `.mlpackage` + `tokenizer.json` + `tokenizer_config.json` ไว้ที่ไหนสักที่
+  (HuggingFace repo ของตัวเองน่าจะง่ายสุด)
+- ดาวน์โหลดตอนเปิดแอปครั้งแรก แล้ว `MLModel.compileModel(at:)` ครั้งเดียวเก็บผลไว้
+- UI แสดงความคืบหน้า + ให้ผู้ใช้เลือกว่าจะโหลดไหม (1.1 GB ไม่ควรโหลดเงียบ ๆ)
 
-1. **`Services/AICoach.swift`** — เป็นไฟล์เดียวที่เรียก FoundationModels API
-   (`SystemLanguageModel.default.availability`, `LanguageModelSession { }`,
-   `session.respond(to:)`, `respond(to:generating:)`, `@Generable`, `@Guide`, `prewarm()`)
-   API เหล่านี้เขียนจากความจำ ไม่ได้ตรวจกับ SDK จริง — ถ้าพังน่าจะพังที่นี่
-2. `CalorieFlow.xcodeproj/project.pbxproj` — เขียนมือ ใช้ Xcode 16 synchronized folder
-   (`PBXFileSystemSynchronizedRootGroup`, objectVersion 77)
-3. Swift Charts ใน `StatsView.swift`
-4. `@Bindable` กับ `@Observable` ใน `SettingsView.swift` / `CoachCard.swift`
+ระหว่างที่ยังไม่มีไฟล์ แอปทำงานปกติ — `AICoach` ถอยไป `RuleBasedAdvisor` เอง
 
-### 3. งานเล็กที่ยังไม่ได้ทำ
+### 3. ยังไม่ได้ทดสอบรันจริง
+
+Core ML backend คอมไพล์ผ่านแต่**ยังไม่เคยรันกับโมเดลจริงสักครั้ง** จุดที่น่าจะพังก่อน:
+
+1. `causal_mask` — ทิศทางของ mask (0 = เห็นได้, `0xFC00` = -inf) และ layout ตอน prefill
+2. `sample()` — ถ้าโมเดลพ่นภาษาแปลก ๆ ให้ลองลด temperature หรือเปลี่ยนเป็น greedy ก่อน
+   เพื่อแยกว่าปัญหาอยู่ที่ sampling หรือที่ตัวโมเดล
+3. `AutoTokenizer.from(modelFolder:)` — ถ้าอ่าน chat template ไม่ได้ก็ไม่เป็นไร
+   เพราะ `CoreMLBackend` ประกอบ `<|im_start|>` เองอยู่แล้ว
+
+### 4. งานเล็กที่ยังไม่ได้ทำ
 
 - ไอคอนแอป — `Assets.xcassets/AppIcon.appiconset/` ยังว่าง ต้องใส่ PNG 1024×1024
-- ฟอนต์ Anuphan — ถ้าอยากให้ตรงกับเว็บเป๊ะ ก๊อป `.ttf` จาก `CalorieFlow-web/src/assets/fonts/`
-  แล้วเพิ่ม `INFOPLIST_KEY_UIAppFonts`
-
-## ข้อควรระวังเรื่องเครื่องมือ
-
-- **ห้ามใช้ PowerShell `Get-Content` / `Set-Content` แก้ไฟล์** — บนเครื่องนี้ PS 5.1
-  ทำข้อความไทยพังเป็น mojibake (เคยเกิดกับ `AICoach.swift` มาแล้ว ต้องเขียนใหม่ทั้งไฟล์)
-  ใช้ Edit / Write tool เท่านั้น
-- git ใช้ได้ปกติ push ผ่าน credential manager ไม่ต้องขอ auth ซ้ำ · ไม่มี `gh` CLI ในเครื่อง
+- ฟอนต์ Anuphan — ถ้าอยากให้ตรงกับเว็บเป๊ะ ต้องเพิ่ม `INFOPLIST_KEY_UIAppFonts`
+- ยังไม่เคยรันบน simulator ดูหน้าตาจริง
 
 ## ข้อตัดสินใจที่ตกลงกันไว้แล้ว (อย่ารื้อ)
 
-- **ไม่ใช้ `NSLocalizedString`** — ผูกกับภาษาระบบ สลับในแอปไม่ได้ถ้าไม่รีสตาร์ท
-  ใช้ตาราง `L10n` ใน `Resources/Strings.swift` ส่งผ่าน environment key `\.l10n` แทน
-- **สีใน `Palette` เป็น dynamic `UIColor`** — ไม่อ่าน `@Environment(\.colorScheme)` ในแต่ละ view
-- **การ์ดแชร์กับหน้า Wrapped ใช้สีคงที่** — เป็นภาพที่ส่งออกนอกแอป ไม่ควรเปลี่ยนตามธีมคนส่ง
-- **แถบแท็บวาดเอง ทับ `TabView` ที่ซ่อนแถบมาตรฐาน** — เพราะ `TabView` วางปุ่ม + ทรงกลมยกกลางไม่ได้
+- **โฟลเดอร์ `LLM/` อยู่ที่ราก repo ไม่ใช่ใน `CalorieFlow/`** — `CalorieFlow/` เป็น
+  synchronized root group ของ target อะไรที่วางไว้ในนั้นจะถูกยัดเข้า `.app` อัตโนมัติ
+  ตอนที่โมเดลยังอยู่ในนั้น แอปบวมจาก 8 MB เป็น 2.9 GB
+- **ไม่ใช้ `NSLocalizedString`** — ใช้ตาราง `L10n` ส่งผ่าน environment key `\.l10n`
+- **สีใน `Palette` เป็น dynamic `UIColor`** — ไม่อ่าน `@Environment(\.colorScheme)` ราย view
+- **การ์ดแชร์กับหน้า Wrapped ใช้สีคงที่** — เป็นภาพที่ส่งออกนอกแอป
+- **แถบแท็บวาดเอง ทับ `TabView` ที่ซ่อนแถบมาตรฐาน**
 - **ปุ่ม + เปิด `AddFoodView` เป็น sheet** ไม่ใช่แท็บ
 - **`AICoach` เป็นจุดเดียวที่คุยกับโมเดล** — เพิ่ม backend ใหม่ต้องไม่แตะ view
-- **Gemini ใช้ไม่ได้** — closed weights ไม่มีให้โหลด/แปลง ตัวที่เปิดคือ Gemma
+  ลำดับปัจจุบัน: Foundation Models → Core ML → `RuleBasedAdvisor`
+- **`CoreMLBackend` เป็น `actor`** — `MLState` ถือ KV cache ที่แก้ในที่
+  สองคำขอพร้อมกันจะทำ cache ปนกัน
+- **ไม่ใช้ชนิด `Float16` ใน Swift** — ไม่มีบน x86_64 ทำให้ build simulator บนแมค Intel พัง
+  `CoreMLBackend` จึงจัดการบิต float16 เอง
+- **Gemini ใช้ไม่ได้** — closed weights ตัวที่เปิดคือ Gemma
