@@ -36,10 +36,15 @@ MODEL_NAME = "Qwen/Qwen2.5-1.5B-Instruct"
 MAX_CONTEXT = 2304
 PREFILL_CHUNK = 128
 
-print("Loading model (float32)...")
+# fp16 ตลอดทาง — Core ML รับ state เป็น fp16 อย่างเดียว (`ValueError: State only
+# support fp16 dtype`) buffer ที่ trace มาจึงต้องเป็น fp16 และเมื่อ buffer เป็น
+# fp16 ตัว attention ก็ต้องเป็น fp16 ตาม ไม่งั้น matmul จะชนกันเรื่อง dtype
+#
+# layer เดียวไม่ล้นเป็น NaN แบบโมเดลเต็ม 28 ชั้น แต่เช็กไว้ก่อนอยู่ดี
+print("Loading model (float16)...")
 full = AutoModelForCausalLM.from_pretrained(
     MODEL_NAME,
-    torch_dtype=torch.float32,
+    torch_dtype=torch.float16,
     low_cpu_mem_usage=True,
     attn_implementation="eager",
 )
@@ -105,8 +110,8 @@ class RopeProbe(torch.nn.Module):
         super().__init__()
         self.attn = attn
         cache_shape = (1, 1, full.config.num_key_value_heads, max_context, head_dim)
-        self.register_buffer("keyCache", torch.zeros(cache_shape))
-        self.register_buffer("valueCache", torch.zeros(cache_shape))
+        self.register_buffer("keyCache", torch.zeros(cache_shape, dtype=torch.float16))
+        self.register_buffer("valueCache", torch.zeros(cache_shape, dtype=torch.float16))
         object.__setattr__(
             self,
             "kv_cache",
@@ -142,12 +147,14 @@ reference = {}
 CASES = [(1, 1), (1, 2), (2, 2), (2, 3), (3, 3)]  # (q_len, ctx_len)
 
 for q_len, ctx in CASES:
-    hidden = torch.randn(1, q_len, hidden_size)
-    mask = torch.zeros(1, 1, q_len, ctx)
+    hidden = torch.randn(1, q_len, hidden_size, dtype=torch.float16)
+    mask = torch.zeros(1, 1, q_len, ctx, dtype=torch.float16)
     probe.keyCache.zero_()
     probe.valueCache.zero_()
     with torch.no_grad():
         q_out, k_out = probe(hidden, mask)
+    if torch.isnan(q_out).any() or torch.isnan(k_out).any():
+        raise SystemExit("Q/K เป็น NaN ตั้งแต่ใน PyTorch — หยุดก่อน")
     tag = f"q{q_len}_ctx{ctx}"
     reference[f"{tag}_hidden"] = hidden.numpy()
     reference[f"{tag}_q"] = q_out.numpy()
@@ -158,8 +165,8 @@ np.savez("/content/rope_reference.npz", **reference)
 print("\nเซฟ /content/rope_reference.npz แล้ว")
 
 # ── แปลงเป็น Core ML ด้วยเงื่อนไขเดียวกับของจริงทุกอย่าง ───────────────────
-example_hidden = torch.randn(1, 2, hidden_size)
-example_mask = torch.zeros(1, 1, 2, 3)
+example_hidden = torch.randn(1, 2, hidden_size, dtype=torch.float16)
+example_mask = torch.zeros(1, 1, 2, 3, dtype=torch.float16)
 
 print("Tracing...")
 with torch.no_grad():
@@ -192,11 +199,11 @@ mlmodel = ct.convert(
     ],
     states=[
         ct.StateType(
-            wrapped_type=ct.TensorType(shape=cache_shape, dtype=np.float32),
+            wrapped_type=ct.TensorType(shape=cache_shape, dtype=np.float16),
             name="keyCache",
         ),
         ct.StateType(
-            wrapped_type=ct.TensorType(shape=cache_shape, dtype=np.float32),
+            wrapped_type=ct.TensorType(shape=cache_shape, dtype=np.float16),
             name="valueCache",
         ),
     ],

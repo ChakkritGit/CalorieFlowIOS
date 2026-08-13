@@ -80,8 +80,12 @@ decode ทีละ token: q = 1, ctx = past + 1, mask เป็นศูนย�
     ข้างล่าง อาการเฉพาะตัวคือ **ป้อน token เดียวยังพอได้ เกินหนึ่งพังทันที**
     ถ้าเจออาการนี้อีกให้สงสัย const ที่เก็บค่าต่อเนื่องช่วงแคบก่อนเสมอ
     ไม่ใช่ตัว weight ของ layer
+    — แก้ข้อนี้แล้วยังพ่นขยะอยู่ ยังหาสาเหตุที่สองไม่เจอ ดู debug_rope.py
 
-
+`ValueError: State only support fp16 dtype`
+    Core ML รับ state เป็น fp16 อย่างเดียว จึงเปลี่ยนไป trace ด้วย fp32 ไม่ได้
+    ทั้งที่ fp16 บน CPU ให้ NaN — แต่ไม่ใช่ปัญหาจริง เพราะไฟล์ที่แปลงออกมา
+    ไม่มี NaN สักตัว (สแกน fp16 blob ครบ 343 ก้อนแล้ว)
 
 `NotImplementedError: Make sure to implement get_max_length in a subclass`
     transformers 4.44 ประกาศ `get_max_length()` ไว้เป็น abstract ใน `Cache`
@@ -222,10 +226,8 @@ TAG = QUANT_DTYPE or "fp16"
 OUTPUT_NAME = f"Qwen-{TAG}.mlpackage"
 OUTPUT_PATH = f"/content/{OUTPUT_NAME}"
 DRIVE_ZIP_PATH = f"/content/drive/MyDrive/{OUTPUT_NAME}.zip"
-# "t32" = trace ด้วย torch float32 — ต่างจาก checkpoint รุ่นก่อนที่ trace ด้วย
-# fp16 ซึ่งใช้ต่อไม่ได้แล้ว ชื่อจึงต้องต่างกันเพื่อไม่ให้เผลอหยิบของเก่ามารีไซเคิล
 FP16_PATH = (
-    f"/content/Qwen-fp16-t32-{'untied' if UNTIE_LM_HEAD else 'tied'}"
+    f"/content/Qwen-fp16-{'untied' if UNTIE_LM_HEAD else 'tied'}"
     f"-c{MAX_CONTEXT}-q{PREFILL_CHUNK}.mlpackage"
 )
 
@@ -342,35 +344,23 @@ if os.path.isdir(FP16_PATH):
     print("พบ checkpoint อยู่แล้ว — ข้าม trace/convert ไปทำ quantize ต่อ")
     mlmodel = ct.models.MLModel(FP16_PATH, skip_model_load=True)
 else:
-    # ── โหลดเป็น float32 ไม่ใช่ float16 ────────────────────────────────────
+    # โหลดเป็น fp16 เพราะ **Core ML รับ state เป็น fp16 เท่านั้น**
+    # (`ValueError: State only support fp16 dtype`) buffer ที่ trace มาจึงต้องเป็น
+    # fp16 และเมื่อ buffer เป็น fp16 ตัวโมเดลก็ต้องเป็น fp16 ตาม
     #
-    # PyTorch รัน fp16 บน CPU แล้วได้ NaN — พิสูจน์แล้วใน verify_wrapper.py
-    # (โมเดลเดียวกัน prompt เดียวกัน fp32 ได้ ' Paris' ส่วน fp16 ได้ NaN ล้วน)
-    #
-    # `torch.jit.trace` รัน forward จริงหนึ่งรอบ และ coremltools ยัง constant-fold
-    # ซับกราฟที่คำนวณจากน้ำหนักได้ตอนแปลง ทั้งสองขั้นจึงทำงานบนค่าที่เป็น NaN
-    # ถ้าโหลดเป็น fp16 — ค่าที่ถูก fold ไปแล้วจะติดอยู่ในกราฟถาวรโดยไม่มี error
-    #
-    # ทางที่ coremltools แนะนำคือ trace ด้วย fp32 แล้วให้ compute_precision
-    # เป็นตัวลดความละเอียดตอนแปลง ซึ่งทำบนค่าที่ถูกต้อง — ที่ทำมาก่อนหน้านี้กลับด้าน
-    #
-    # แลกมาด้วย RAM ตอนโหลดราว 6 GB แทน 3 GB
-    print("Loading model (float32)...")
+    # เคยลองเปลี่ยนเป็น fp32 ด้วยเหตุผลว่า PyTorch รัน fp16 บน CPU แล้วได้ NaN
+    # (จริง — ดู verify_wrapper.py) แต่แนวทางนั้นตกไปสองชั้น: ct.convert ปฏิเสธ
+    # ตั้งแต่ต้นเพราะ state ไม่ใช่ fp16 และที่สำคัญกว่าคือ **ไม่มี NaN ในไฟล์ที่
+    # แปลงออกมาจริง** — สแกน fp16 blob ครบทั้ง 343 ก้อนแล้วไม่เจอสักตัว และ
+    # ไม่มีคำว่า nan ใน MIL เลย constant folding จึงไม่เคยผลิต NaN ออกมา
+    print("Loading model...")
     torch_model = AutoModelForCausalLM.from_pretrained(
         MODEL_NAME,
-        torch_dtype=torch.float32,
+        torch_dtype=torch.float16,
         low_cpu_mem_usage=True,
         attn_implementation="eager",
     )
     torch_model.eval()
-
-    # กันพลาดแบบเดียวกับที่เพิ่งเจอ — ถ้า forward ให้ NaN ตั้งแต่ใน PyTorch
-    # ก็ไม่ต้องเสียเวลาแปลงต่อ ของที่ได้จะพังแน่นอนและพังแบบเงียบ
-    with torch.no_grad():
-        _probe = torch_model(input_ids=torch.zeros((1, 4), dtype=torch.long)).logits
-    if torch.isnan(_probe).any() or torch.isinf(_probe).any():
-        raise SystemExit("forward ของโมเดล PyTorch ให้ NaN/Inf — หยุดก่อน อย่าแปลงต่อ")
-    del _probe
 
     if UNTIE_LM_HEAD:
         # clone ให้ lm_head มี storage ของตัวเอง const ในกราฟจะแยกเป็นสองก้อน
@@ -392,7 +382,6 @@ else:
     # mask ตัวอย่างต้องเป็น dtype เดียวกับน้ำหนัก ไม่งั้น attention จะ upcast
     # ให้เองแล้วกราฟจะมี cast แปลกปลอมโผล่มา
     torch_dtype = next(torch_model.parameters()).dtype
-    state_dtype = np.float16 if torch_dtype == torch.float16 else np.float32
     example_ids = torch.zeros((1, 2), dtype=torch.int32)
     example_mask = torch.zeros((1, 1, 2, 3), dtype=torch_dtype)
 
@@ -444,15 +433,14 @@ else:
             ),
         ],
         outputs=[ct.TensorType(name="logits", dtype=np.float16)],
-        # dtype ของ state ต้องตรงกับ buffer ที่ trace มา ไม่งั้น ct ปฏิเสธ
-        # compute_precision จะลดให้เหลือ fp16 ในโปรแกรมสุดท้ายเองอยู่แล้ว
+        # Core ML รองรับ state เป็น fp16 อย่างเดียว ห้ามเปลี่ยน
         states=[
             ct.StateType(
-                wrapped_type=ct.TensorType(shape=cache_shape, dtype=state_dtype),
+                wrapped_type=ct.TensorType(shape=cache_shape, dtype=np.float16),
                 name="keyCache",
             ),
             ct.StateType(
-                wrapped_type=ct.TensorType(shape=cache_shape, dtype=state_dtype),
+                wrapped_type=ct.TensorType(shape=cache_shape, dtype=np.float16),
                 name="valueCache",
             ),
         ],
