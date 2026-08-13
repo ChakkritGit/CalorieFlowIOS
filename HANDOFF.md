@@ -90,34 +90,43 @@ embedding ไว้ที่ fp16 ช่วยภาษาที่ token ยา
 `/tmp/qwencheck` เป็นตัวรันฝั่งแมค ใช้ `CoreMLBackend.swift` ผ่าน symlink จึง
 ทดสอบโค้ดตัวจริง ไม่ใช่โค้ดที่เขียนเลียนแบบ
 
-### 2. ตัวดาวน์โหลดโมเดล — ยังไม่ได้ทำ
+### 2. ตัวดาวน์โหลดโมเดล — ทำแล้ว เหลือแค่ URL
 
-`ModelStore` ใน `Services/CoreMLBackend.swift` ตอนนี้แค่ *หา* ไฟล์ใน Application Support
-ยังไม่มีตัวโหลด ต้องเพิ่ม:
+`Services/ModelDownloader.swift` + `Views/ModelDownloadView.swift` เข้าถึงได้จาก
+หน้าตั้งค่า ทำงานครบทั้งเช็กพื้นที่ว่าง ดาวน์โหลดแบบ background ที่ทนการปิดแอป
+(เก็บ resume data ล้มกลางทางแล้วไปต่อ ไม่เริ่มใหม่) แตก zip คอมไพล์เป็น
+`.mlmodelc` แล้วลบไฟล์กลางทิ้ง พร้อมปุ่มยกเลิก/ลองใหม่/ลบโมเดล
 
-- โฮสต์ `.mlpackage` + `tokenizer.json` + `tokenizer_config.json` ไว้ที่ไหนสักที่
-  (HuggingFace repo ของตัวเองน่าจะง่ายสุด)
-- ดาวน์โหลดตอนเปิดแอปครั้งแรก แล้ว `MLModel.compileModel(at:)` ครั้งเดียวเก็บผลไว้
-- UI แสดงความคืบหน้า + ให้ผู้ใช้เลือกว่าจะโหลดไหม (1.1 GB ไม่ควรโหลดเงียบ ๆ)
+**สิ่งเดียวที่ยังต้องทำ** — ตั้งค่า `ModelDownloader.downloadBaseURL` (มี `// TODO`
+กำกับ) ให้ชี้ไปที่ที่โฮสต์ไฟล์สามตัวจาก `LLM/convert.py`
 
-ระหว่างที่ยังไม่มีไฟล์ แอปทำงานปกติ — `AICoach` ถอยไป `RuleBasedAdvisor` เอง
+1. อัปโหลด `Qwen-int8.mlpackage.zip`, `tokenizer.json`, `tokenizer_config.json`
+   ไว้ใต้ base เดียวกันแบบแบนราบ (HuggingFace repo ของตัวเองน่าจะง่ายสุด)
+   zip ต้องบีบจาก*นอก*โฟลเดอร์ ให้ใน archive มี `Qwen-int8.mlpackage/...`
+2. ตั้ง `downloadBaseURL` เป็น prefix สำหรับโหลดตรง ไม่มี `/` ปิดท้าย —
+   ของ HuggingFace คือ `https://huggingface.co/<user>/<repo>/resolve/main`
+3. เช็ก `approximateBytes` กับ `requiredDiskBytes` (ตอนนี้ 4.5 GB เผื่อช่วงที่
+   zip + mlpackage + mlmodelc อยู่พร้อมกัน) ให้ตรงกับไฟล์จริง
 
-### 3. ยังไม่เคยรันในแอปจริง
+ก่อนตั้งค่า หน้าจอจะบอกว่ายังไม่ได้ตั้ง URL ไม่ใช่ปล่อยให้พังกลางคัน
 
-`CoreMLBackend` ถูกทดสอบผ่าน `/tmp/qwencheck` บน macOS เท่านั้น ยังไม่เคยรัน
-ในแอปบน simulator หรือเครื่องจริง สิ่งที่ต้องดูตอนรันครั้งแรก:
+**หมายเหตุเรื่อง zip** — iOS ไม่มี API สาธารณะสำหรับ *อ่าน* zip เลย
+(`NSFileCoordinator` เขียนได้อย่างเดียว ส่วน AppleArchive เป็นคนละฟอร์แมต) โค้ดจึง
+แกะ container เองแล้วส่งไบต์ดิบเข้า `Compression` ทดสอบกับ archive จริงสามแบบ
+(deflate / zip64 / stored) แล้วได้ผลตรงทุกไบต์
 
-- แรมตอนโหลดโมเดล — 0.89 GB บนดิสก์ แต่ตอน inference จะสูงกว่านั้น
-  entitlement `increased-memory-limit` ใส่ไว้แล้ว
-- ความเร็วบน ANE ของเครื่องจริง เทียบกับ ~7 token/วินาที ที่วัดได้บนแมค
-- `sample()` ใช้ top-k + temperature 0.7 ส่วนที่ทดสอบมาใช้ greedy ถ้าคำตอบ
-  หลุดประเด็นให้ลองลด temperature ก่อน แล้วค่อยสงสัยตัวโมเดล
+### 3. รันบน simulator ได้แล้ว
+
+หน้าแรกแสดงผลถูกต้อง ไอคอนกับ launch screen ติดครบ ที่ยังไม่ได้ดูคือหน้าอื่น ๆ
+เพราะ Xcode beta ตัวนี้ไม่ได้ติดตั้ง Simulator แบบ GUI มาด้วย มีแต่ `simctl`
+แบบ headless ซึ่งสั่งแตะหน้าจอไม่ได้ — เปิด Xcode กด Run จะเห็นครบ
+
+ที่ยังไม่ได้ทดสอบจริง: `CoreMLBackend` บนเครื่อง (แรมตอน inference, ความเร็ว ANE)
+และตัวดาวน์โหลดทั้งเส้น เพราะยังไม่มี URL
 
 ### 4. งานเล็กที่ยังไม่ได้ทำ
 
-- ไอคอนแอป — `Assets.xcassets/AppIcon.appiconset/` ยังว่าง ต้องใส่ PNG 1024×1024
 - ฟอนต์ Anuphan — ถ้าอยากให้ตรงกับเว็บเป๊ะ ต้องเพิ่ม `INFOPLIST_KEY_UIAppFonts`
-- ยังไม่เคยรันบน simulator ดูหน้าตาจริง
 
 ## ข้อตัดสินใจที่ตกลงกันไว้แล้ว (อย่ารื้อ)
 
@@ -136,3 +145,9 @@ embedding ไว้ที่ fp16 ช่วยภาษาที่ token ยา
 - **ไม่ใช้ชนิด `Float16` ใน Swift** — ไม่มีบน x86_64 ทำให้ build simulator บนแมค Intel พัง
   `CoreMLBackend` จึงจัดการบิต float16 เอง
 - **Gemini ใช้ไม่ได้** — closed weights ตัวที่เปิดคือ Gemma
+- **ธีมคุมที่ `UIWindow.overrideUserInterfaceStyle` ไม่ใช่ `.preferredColorScheme`**
+  เพราะ `Palette` เป็น dynamic `UIColor` ที่ resolve จาก trait ของ UIKit
+- **ภาษาเก็บเป็น `.system` ได้** — อย่ากลับไป resolve ครั้งเดียวตอนติดตั้งแล้วแช่ไว้
+- **launch screen เป็น storyboard** — Xcode เปิดให้ตั้งผ่าน `INFOPLIST_KEY_` แค่
+  `UILaunchScreen_Generation` กับ `UILaunchStoryboardName` ส่วนสีพื้นหลังกับรูป
+  อยู่ใน dict ซ้อนซึ่งกลไกนั้นแปลงให้ไม่ได้
