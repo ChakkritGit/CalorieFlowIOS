@@ -86,6 +86,11 @@ decode ทีละ token: q = 1, ctx = past + 1, mask เป็นศูนย�
     เลขล้นใน fp16 — โมเดลที่ถูกต้องต้องให้ผลเท่ากันทุก backend ตัวการคือ
     เลขล้นตอน matmul ของ attention ดู ATTN_SCALE ข้างล่าง
 
+เรียก q=1 ติดกัน สองครั้งแรกถูก ครั้งที่สามเป็นต้นไปผิด
+    Core ML ใช้ specialization ที่ cache ไว้ตามรูปร่าง input ทำให้ค่าที่คำนวณ
+    จาก shape ค้างอยู่ที่ของเก่า ดู _full_table_rope_forward
+    วิธีพิสูจน์: แทรกการเรียกที่รูปร่างต่างกันคั่น แล้วหาย ส่วนรูปร่างเดียวกันไม่ช่วย
+
 `ValueError: State only support fp16 dtype`
     Core ML รับ state เป็น fp16 อย่างเดียว จึงเปลี่ยนไป trace ด้วย fp32 ไม่ได้
     ทั้งที่ fp16 บน CPU ให้ NaN — แต่ไม่ใช่ปัญหาจริง เพราะไฟล์ที่แปลงออกมา
@@ -240,7 +245,7 @@ ATTN_SCALE = 64.0
 # ก่อนแพตช์ใช้ต่อไม่ได้ ถ้าไม่แยกชื่อ สคริปต์จะหยิบของเก่ามา quantize เงียบ ๆ
 # แล้วได้ผลพังเหมือนเดิมโดยไม่มีอะไรเตือน
 FP16_PATH = (
-    f"/content/Qwen-fp16-attn{ATTN_SCALE:.0f}-normfp32-{'untied' if UNTIE_LM_HEAD else 'tied'}"
+    f"/content/Qwen-fp16-attn{ATTN_SCALE:.0f}-normfp32-fullrope-{'untied' if UNTIE_LM_HEAD else 'tied'}"
     f"-c{MAX_CONTEXT}-q{PREFILL_CHUNK}.mlpackage"
 )
 
@@ -368,6 +373,37 @@ def _scale_down_queries(model):
             q_proj.bias.data /= ATTN_SCALE
 
 
+# ── เลิกตัดตาราง RoPE ตามความยาว ───────────────────────────────────────────
+#
+# `Qwen2RotaryEmbedding.forward` คืน `cos_cached[:seq_len]` โดย seq_len มาจาก
+# รูปร่างของ input — ซึ่งเป็นจุดที่ Core ML ทำพัง
+#
+# อาการ: เรียก q=1 ติดกัน สองครั้งแรกถูก ครั้งที่สามเป็นต้นไปผิด และผิดแบบ
+# deterministic เหมือนกันทุก backend พิสูจน์ว่าเป็นเรื่อง specialization ที่
+# cache ไว้ตามรูปร่าง input ได้จากการแทรกการเรียกที่ "รูปร่างต่างกัน" คั่น
+# แล้วหายสนิท ส่วนการแทรกที่ "รูปร่างเดียวกัน" ไม่ช่วยเลย
+#
+#   ไม่คั่น              k1=0.000  k2=0.001  k3=0.531  k4=1.014
+#   คั่นรูปร่างเดียวกัน   k1=0.000  k2=0.001  k3=0.531  k4=1.014
+#   คั่นรูปร่างอื่น       k1=0.000  k2=0.001  k3=0.001  k4=0.001
+#
+# ที่ตรงกับหลักฐานคือ ช่อง cache ถูกเขียนครบทุกช่อง (ดัชนีเขียนถูก) แต่ค่า K
+# ของช่องล่าสุดผิดตั้งแต่ layer 0 ซึ่ง K = k_proj(hidden) + RoPE — input เหมือนกัน
+# ทั้งสองทาง เหลืออย่างเดียวคือตำแหน่ง RoPE ผิด
+#
+# ถ้าความยาวที่ใช้ตัดตารางค้างอยู่ที่ค่าเก่า การ gather ตำแหน่งล่าสุดจะหลุดขอบ
+# ตาราง แล้วได้ค่าของตำแหน่งอื่นมาแทน
+#
+# แก้โดยคืนทั้งตาราง ไม่ตัดเลย — `apply_rotary_pos_emb` เลือกแถวด้วย
+# position_ids อยู่แล้ว การตัดก่อนจึงไม่จำเป็นตั้งแต่แรก และตารางทั้งก้อนก็แค่
+# 32768 x 128 ซึ่งอยู่ในไฟล์อยู่แล้ว ไม่ได้โตขึ้น
+def _full_table_rope_forward(self, x, seq_len=None):
+    return (
+        self.cos_cached.to(dtype=x.dtype),
+        self.sin_cached.to(dtype=x.dtype),
+    )
+
+
 # ── กัน RMSNorm ล้น โดยไม่ให้ coremltools ลดมันเป็น fp16 ───────────────────
 #
 # นี่คือวิธีที่ถูกของปัญหาที่เคยพยายามแก้ด้วยการขยับสเกลแล้วพัง (ดูคอมเมนต์
@@ -487,8 +523,12 @@ else:
 
     # ต้องแพตช์ก่อน trace — กราฟจะได้จับรูปที่กันการล้นไว้แล้ว
     qwen2_mod.math = _ScaledMath()
+    qwen2_mod.Qwen2RotaryEmbedding.forward = _full_table_rope_forward
     _scale_down_queries(torch_model)
-    print(f"แพตช์แล้ว — attention หารด้วย {ATTN_SCALE:.0f} ก่อน matmul")
+    print(
+        f"แพตช์แล้ว — attention หารด้วย {ATTN_SCALE:.0f} ก่อน matmul, "
+        "RoPE ใช้ทั้งตารางไม่ตัดตามความยาว"
+    )
 
     # ── พิสูจน์ว่าแพตช์ได้ผล ก่อนจะเสียเวลาแปลงสี่สิบนาที ──────────────────
     #
