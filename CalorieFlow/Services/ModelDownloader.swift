@@ -90,19 +90,17 @@ final class ModelDownloader {
 
     /// ที่อยู่ของไฟล์โมเดลบนเซิร์ฟเวอร์
     ///
-    /// - TODO: **ยังไม่ได้อัปโหลดไฟล์ ต้องเติมค่านี้ก่อนถึงจะโหลดได้**
-    ///   ที่ที่เหมาะสุดคือ HuggingFace repo ของเจ้าของแอปเอง (ไฟล์เกิน 100 MB
-    ///   ขึ้น GitHub ไม่ได้) เช่น
-    ///   `https://huggingface.co/<user>/<repo>/resolve/main`
-    ///   สิ่งที่ต้องอัปโหลดคือผลลัพธ์ของ `LLM/convert.py` สามไฟล์ วางเรียงกันแบน ๆ
-    ///   ใต้ base เดียวกัน:
+    /// อยู่บน HuggingFace เพราะไฟล์เกิน 100 MB ขึ้น GitHub ไม่ได้ ส่วน `resolve/main`
+    /// คือเส้นทางที่ให้ไฟล์ดิบ ไม่ใช่หน้าเว็บ — ต่อท้ายด้วย `/<ชื่อไฟล์>` ได้ตรง ๆ
     ///
-    ///       <base>/Qwen-int8.mlpackage.zip
-    ///       <base>/tokenizer.json
-    ///       <base>/tokenizer_config.json
+    /// สิ่งที่อยู่ในนั้นคือผลลัพธ์ของ `LLM/convert.py` สามไฟล์ วางเรียงกันแบน ๆ:
     ///
-    ///   เติมค่าแล้วโค้ดที่เหลือทำงานทันที ไม่ต้องแก้ที่อื่น
-    static let downloadBaseURL = ""
+    ///     <base>/Qwen-int8.mlpackage.zip
+    ///     <base>/tokenizer.json
+    ///     <base>/tokenizer_config.json
+    ///
+    /// zip ต้องบีบจาก*นอก*โฟลเดอร์ ให้ใน archive มี `Qwen-int8.mlpackage/...`
+    static let downloadBaseURL = "https://huggingface.co/Chakkrit25/calorieflow-qwen/resolve/main"
 
     /// ไฟล์ที่ต้องโหลด เรียงจากเล็กไปใหญ่ — ถ้าที่อยู่ผิดหรือเน็ตพัง จะรู้ตั้งแต่
     /// ไฟล์เล็กโดยไม่ต้องรอกิกะไบต์แรกจบก่อน
@@ -114,9 +112,9 @@ final class ModelDownloader {
     }
 
     private static let assets = [
-        Asset(remoteName: "tokenizer_config.json", localName: "tokenizer_config.json", approximateBytes: 1_024),
-        Asset(remoteName: "tokenizer.json", localName: "tokenizer.json", approximateBytes: 11_000_000),
-        Asset(remoteName: "Qwen-int8.mlpackage.zip", localName: "Qwen-int8.mlpackage.zip", approximateBytes: 1_500_000_000)
+        Asset(remoteName: "tokenizer_config.json", localName: "tokenizer_config.json", approximateBytes: 724),
+        Asset(remoteName: "tokenizer.json", localName: "tokenizer.json", approximateBytes: 11_421_892),
+        Asset(remoteName: "Qwen-int8.mlpackage.zip", localName: "Qwen-int8.mlpackage.zip", approximateBytes: 1_549_530_496)
     ]
 
     /// ขนาดรวมที่ต้องโหลด — ใช้โชว์บนปุ่มเท่านั้น

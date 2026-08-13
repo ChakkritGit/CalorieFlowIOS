@@ -22,6 +22,7 @@ xcuserdata/
 # GitHub ปฏิเสธไฟล์เกิน 100 MB และโมเดล 1.5B แบบ 4-bit ใหญ่ราว 1 GB
 # ให้ดาวน์โหลดตอนรันครั้งแรก (Background Assets) หรือใช้ Git LFS แยก repo
 *.mlpackage/
+*.mlpackage.zip
 *.mlmodelc/
 *.mlmodel
 Models/*.bin
