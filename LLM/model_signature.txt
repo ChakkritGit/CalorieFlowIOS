@@ -1,0 +1,93 @@
+=== MODEL TYPE ===
+mlProgram
+
+=== INPUTS ===
+name: "input_ids"
+type {
+  multiArrayType {
+    shape: 1
+    shape: 1
+    dataType: INT32
+    shapeRange {
+      sizeRanges {
+        lowerBound: 1
+        upperBound: 1
+      }
+      sizeRanges {
+        lowerBound: 1
+        upperBound: 128
+      }
+    }
+  }
+}
+
+name: "causal_mask"
+type {
+  multiArrayType {
+    shape: 1
+    shape: 1
+    shape: 1
+    shape: 1
+    dataType: FLOAT16
+    shapeRange {
+      sizeRanges {
+        lowerBound: 1
+        upperBound: 1
+      }
+      sizeRanges {
+        lowerBound: 1
+        upperBound: 1
+      }
+      sizeRanges {
+        lowerBound: 1
+        upperBound: 128
+      }
+      sizeRanges {
+        lowerBound: 1
+        upperBound: 2304
+      }
+    }
+  }
+}
+
+
+=== OUTPUTS ===
+name: "logits"
+type {
+  multiArrayType {
+    shape: 1
+    shape: 1
+    shape: 151936
+    dataType: FLOAT16
+  }
+}
+
+
+=== STATES ===
+name: "keyCache"
+type {
+  stateType {
+    arrayType {
+      shape: 28
+      shape: 1
+      shape: 2
+      shape: 2304
+      shape: 128
+      dataType: FLOAT16
+    }
+  }
+}
+
+name: "valueCache"
+type {
+  stateType {
+    arrayType {
+      shape: 28
+      shape: 1
+      shape: 2
+      shape: 2304
+      shape: 128
+      dataType: FLOAT16
+    }
+  }
+}

@@ -30,3 +30,4 @@ Models/*.safetensors
 # Xcode workspace ที่ generate เอง
 CalorieFlow.xcodeproj/project.xcworkspace/
 CalorieFlow.xcodeproj/xcshareddata/
+.DS_Store

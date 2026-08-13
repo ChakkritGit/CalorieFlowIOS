@@ -1,5 +1,6 @@
 import CoreML
 import Foundation
+import Hub
 import Tokenizers
 
 /// รันโมเดล Qwen2.5-1.5B-Instruct ที่แปลงเป็น Core ML แบบ stateful
@@ -20,8 +21,18 @@ actor CoreMLBackend {
     }
 
     /// ต้องตรงกับ `MAX_CONTEXT` ใน `LLM/convert.py` — โมเดลถูกคอมไพล์มาด้วยค่านี้
-    /// ป้อนเกินแล้ว Core ML จะปฏิเสธทั้งคำขอ
-    static let maxContext = 512
+    /// ป้อนเกินแล้ว Core ML จะปฏิเสธทั้งคำขอ นับรวม prompt + คำตอบ + chat template
+    static let maxContext = 2304
+
+    /// จำนวน token สูงสุดต่อการเรียกโมเดลหนึ่งครั้ง (`PREFILL_CHUNK` ในสคริปต์แปลง)
+    /// ต่ำกว่า `maxContext` โดยตั้งใจ เพื่อไม่ให้เมทริกซ์ attention ในหนึ่งรอบ
+    /// ใหญ่เกินกว่าที่ Neural Engine ไหว — prompt ยาวจึงต้องป้อนเป็นก้อน
+    static let prefillChunk = 128
+
+    /// ค่าที่ใช้ปิด token ใน mask — ต่ำสุดของ fp16 ไม่ใช่ `-inf` จริง
+    /// (`-inf` ทำให้ softmax ได้ NaN ถ้าเจอแถวที่ถูกปิดทั้งแถว)
+    private static let maskedBits: UInt16 = 0xFBFF
+    private static let visibleBits: UInt16 = 0x0000
 
     private let model: MLModel
     private let tokenizer: Tokenizer
@@ -39,8 +50,25 @@ actor CoreMLBackend {
         configuration.computeUnits = .all
 
         model = try await MLModel.load(contentsOf: modelURL, configuration: configuration)
-        tokenizer = try await AutoTokenizer.from(modelFolder: tokenizerFolder)
+
+        // อ่านสอง json เข้ามาเองแทนที่จะใช้ `AutoTokenizer.from(modelFolder:)`
+        // เพราะตัวนั้นบังคับให้มี `config.json` ของโมเดล PyTorch อยู่ในโฟลเดอร์ด้วย
+        // ซึ่งเราไม่มีและไม่ต้องใช้ — และมันจะเลือก `PreTrainedTokenizer` แบบทั่วไป
+        // แทนที่จะเป็น `Qwen2Tokenizer` ตามที่ `tokenizer_class` ระบุไว้
+        tokenizer = try AutoTokenizer.from(
+            tokenizerConfig: try Self.config(at: tokenizerFolder, named: "tokenizer_config.json"),
+            tokenizerData: try Self.config(at: tokenizerFolder, named: "tokenizer.json")
+        )
         endOfTurn = tokenizer.convertTokenToId("<|im_end|>") ?? 151645
+    }
+
+    private static func config(at folder: URL, named name: String) throws -> Config {
+        let data = try Data(contentsOf: folder.appendingPathComponent(name))
+        let json = try JSONSerialization.jsonObject(with: data)
+        guard let dictionary = json as? [NSString: Any] else {
+            throw LoadError.filesMissing
+        }
+        return Config(dictionary)
     }
 
     // MARK: - Generation
@@ -72,12 +100,19 @@ actor CoreMLBackend {
 
         let state = model.makeState()
 
-        // prefill: ป้อนทั้ง prompt รอบเดียว mask เป็นสามเหลี่ยมล่างตามปกติ
-        var logits = try predict(
-            tokens: tokens,
-            pastLength: 0,
-            state: state
-        )
+        // prefill: ป้อน prompt เป็นก้อน ก้อนละไม่เกิน prefillChunk
+        // logits ของก้อนสุดท้ายคือตัวที่ใช้เลือก token แรกของคำตอบ
+        var past = 0
+        var logits: [Float] = []
+        var cursor = tokens.startIndex
+        while cursor < tokens.endIndex {
+            let end = min(cursor + Self.prefillChunk, tokens.endIndex)
+            let chunk = Array(tokens[cursor..<end])
+            logits = try predict(tokens: chunk, pastLength: past, state: state)
+            past += chunk.count
+            cursor = end
+        }
+
         var generated: [Int] = []
 
         for _ in 0..<maxNewTokens {
@@ -87,12 +122,12 @@ actor CoreMLBackend {
             }
             generated.append(next)
 
+            // ชน MAX_CONTEXT แล้วป้อนต่อไม่ได้ Core ML จะปฏิเสธคำขอทั้งก้อน
+            guard past + 1 < Self.maxContext else { break }
+
             // decode: ป้อนทีละ token ที่เหลือ Core ML อ่านจาก state ให้เอง
-            logits = try predict(
-                tokens: [next],
-                pastLength: tokens.count + generated.count - 1,
-                state: state
-            )
+            logits = try predict(tokens: [next], pastLength: past, state: state)
+            past += 1
         }
 
         return tokenizer.decode(tokens: generated)
@@ -124,7 +159,8 @@ actor CoreMLBackend {
                 // token ตัวที่ `row` มองเห็นได้ถึงตำแหน่ง pastLength + row เท่านั้น
                 let visible = pastLength + row
                 for column in 0..<contextLength {
-                    buffer[row * contextLength + column] = column <= visible ? 0x0000 : 0xFC00
+                    buffer[row * contextLength + column] =
+                        column <= visible ? Self.visibleBits : Self.maskedBits
                 }
             }
         }
@@ -139,14 +175,15 @@ actor CoreMLBackend {
             return []
         }
 
-        // สนใจแค่แถวสุดท้าย — แถวก่อนหน้าเป็นการทำนาย token ที่รู้คำตอบอยู่แล้ว
-        let vocabSize = raw.shape[2].intValue
-        let offset = (raw.shape[1].intValue - 1) * vocabSize
+        // โมเดลตัดมาให้แล้วเหลือเฉพาะตำแหน่งสุดท้าย — shape เป็น (1, 1, vocab)
+        // เสมอ ไม่ว่าจะป้อนมากี่ token ก็ตาม ตำแหน่งก่อนหน้าเป็นการทำนาย token
+        // ที่รู้คำตอบอยู่แล้ว การตัดตั้งแต่ในกราฟช่วยลด output จาก 39 MB เหลือ 0.3 MB
+        let vocabSize = raw.shape[raw.shape.count - 1].intValue
         var row = [Float](repeating: 0, count: vocabSize)
         raw.withUnsafeBytes { bytes in
             let buffer = bytes.bindMemory(to: UInt16.self)
             for index in 0..<vocabSize {
-                row[index] = Self.float(fromHalf: buffer[offset + index])
+                row[index] = Self.float(fromHalf: buffer[index])
             }
         }
         return row
