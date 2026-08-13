@@ -222,8 +222,10 @@ TAG = QUANT_DTYPE or "fp16"
 OUTPUT_NAME = f"Qwen-{TAG}.mlpackage"
 OUTPUT_PATH = f"/content/{OUTPUT_NAME}"
 DRIVE_ZIP_PATH = f"/content/drive/MyDrive/{OUTPUT_NAME}.zip"
+# "t32" = trace ด้วย torch float32 — ต่างจาก checkpoint รุ่นก่อนที่ trace ด้วย
+# fp16 ซึ่งใช้ต่อไม่ได้แล้ว ชื่อจึงต้องต่างกันเพื่อไม่ให้เผลอหยิบของเก่ามารีไซเคิล
 FP16_PATH = (
-    f"/content/Qwen-fp16-{'untied' if UNTIE_LM_HEAD else 'tied'}"
+    f"/content/Qwen-fp16-t32-{'untied' if UNTIE_LM_HEAD else 'tied'}"
     f"-c{MAX_CONTEXT}-q{PREFILL_CHUNK}.mlpackage"
 )
 
@@ -340,14 +342,35 @@ if os.path.isdir(FP16_PATH):
     print("พบ checkpoint อยู่แล้ว — ข้าม trace/convert ไปทำ quantize ต่อ")
     mlmodel = ct.models.MLModel(FP16_PATH, skip_model_load=True)
 else:
-    print("Loading model...")
+    # ── โหลดเป็น float32 ไม่ใช่ float16 ────────────────────────────────────
+    #
+    # PyTorch รัน fp16 บน CPU แล้วได้ NaN — พิสูจน์แล้วใน verify_wrapper.py
+    # (โมเดลเดียวกัน prompt เดียวกัน fp32 ได้ ' Paris' ส่วน fp16 ได้ NaN ล้วน)
+    #
+    # `torch.jit.trace` รัน forward จริงหนึ่งรอบ และ coremltools ยัง constant-fold
+    # ซับกราฟที่คำนวณจากน้ำหนักได้ตอนแปลง ทั้งสองขั้นจึงทำงานบนค่าที่เป็น NaN
+    # ถ้าโหลดเป็น fp16 — ค่าที่ถูก fold ไปแล้วจะติดอยู่ในกราฟถาวรโดยไม่มี error
+    #
+    # ทางที่ coremltools แนะนำคือ trace ด้วย fp32 แล้วให้ compute_precision
+    # เป็นตัวลดความละเอียดตอนแปลง ซึ่งทำบนค่าที่ถูกต้อง — ที่ทำมาก่อนหน้านี้กลับด้าน
+    #
+    # แลกมาด้วย RAM ตอนโหลดราว 6 GB แทน 3 GB
+    print("Loading model (float32)...")
     torch_model = AutoModelForCausalLM.from_pretrained(
         MODEL_NAME,
-        torch_dtype=torch.float16,
+        torch_dtype=torch.float32,
         low_cpu_mem_usage=True,
         attn_implementation="eager",
     )
     torch_model.eval()
+
+    # กันพลาดแบบเดียวกับที่เพิ่งเจอ — ถ้า forward ให้ NaN ตั้งแต่ใน PyTorch
+    # ก็ไม่ต้องเสียเวลาแปลงต่อ ของที่ได้จะพังแน่นอนและพังแบบเงียบ
+    with torch.no_grad():
+        _probe = torch_model(input_ids=torch.zeros((1, 4), dtype=torch.long)).logits
+    if torch.isnan(_probe).any() or torch.isinf(_probe).any():
+        raise SystemExit("forward ของโมเดล PyTorch ให้ NaN/Inf — หยุดก่อน อย่าแปลงต่อ")
+    del _probe
 
     if UNTIE_LM_HEAD:
         # clone ให้ lm_head มี storage ของตัวเอง const ในกราฟจะแยกเป็นสองก้อน
@@ -366,8 +389,12 @@ else:
     # ตัวอย่างสำหรับ trace: ป้อน 2 token โดยมีของเก่าใน cache อยู่แล้ว 1 token
     # ต้องให้ทั้งสองมิติต่างกัน ไม่งั้น trace จะยุบสองค่านี้เป็นตัวเดียว
     # ค่าเล็กแบบนี้ใช้ได้กับทุก MAX_CONTEXT เพราะกราฟอ้างอิงรูปร่างเชิงสัญลักษณ์
+    # mask ตัวอย่างต้องเป็น dtype เดียวกับน้ำหนัก ไม่งั้น attention จะ upcast
+    # ให้เองแล้วกราฟจะมี cast แปลกปลอมโผล่มา
+    torch_dtype = next(torch_model.parameters()).dtype
+    state_dtype = np.float16 if torch_dtype == torch.float16 else np.float32
     example_ids = torch.zeros((1, 2), dtype=torch.int32)
-    example_mask = torch.zeros((1, 1, 2, 3), dtype=torch.float16)
+    example_mask = torch.zeros((1, 1, 2, 3), dtype=torch_dtype)
 
     # TracerWarning เรื่อง "Converting a tensor to a Python boolean/integer"
     # จะโผล่มาหลายบรรทัดตรงนี้ — ปกติสำหรับดีไซน์นี้ ทุกอันเป็นเรื่องของ shape
@@ -417,13 +444,15 @@ else:
             ),
         ],
         outputs=[ct.TensorType(name="logits", dtype=np.float16)],
+        # dtype ของ state ต้องตรงกับ buffer ที่ trace มา ไม่งั้น ct ปฏิเสธ
+        # compute_precision จะลดให้เหลือ fp16 ในโปรแกรมสุดท้ายเองอยู่แล้ว
         states=[
             ct.StateType(
-                wrapped_type=ct.TensorType(shape=cache_shape, dtype=np.float16),
+                wrapped_type=ct.TensorType(shape=cache_shape, dtype=state_dtype),
                 name="keyCache",
             ),
             ct.StateType(
-                wrapped_type=ct.TensorType(shape=cache_shape, dtype=np.float16),
+                wrapped_type=ct.TensorType(shape=cache_shape, dtype=state_dtype),
                 name="valueCache",
             ),
         ],
