@@ -100,8 +100,13 @@ class SliceUpdateKeyValueCache(Cache):
 # ไม่เรียก apply_rotary_pos_emb เองเพราะ signature เปลี่ยนไปมาตามรุ่น (4.44 ยัง
 # บังคับ position_ids ส่วนรุ่นใหม่รับ cos/sin ที่เลือกตำแหน่งมาแล้ว) — เรียก
 # attention ตัวจริงแล้วดักค่าออกมาแทน ได้เส้นทางเดียวกับตอนแปลงจริงแน่นอน
-_orig_apply_rope = qwen2_mod.apply_rotary_pos_emb
+# ดึงตัวจริงออกมาแบบทนการรันซ้ำ — ถ้าเซลล์ถูกรันสองรอบในเซสชันเดียว
+# `qwen2_mod.apply_rotary_pos_emb` จะเป็น spy ของรอบก่อนอยู่แล้ว การเก็บมันไว้
+# เป็น "ตัวจริง" จะทำให้ spy เรียกตัวเองวนจน RecursionError
 _captured = {}
+_orig_apply_rope = getattr(
+    qwen2_mod.apply_rotary_pos_emb, "_wraps", qwen2_mod.apply_rotary_pos_emb
+)
 
 
 def _spy_apply_rope(*args, **kwargs):
@@ -110,6 +115,7 @@ def _spy_apply_rope(*args, **kwargs):
     return q, k
 
 
+_spy_apply_rope._wraps = _orig_apply_rope
 qwen2_mod.apply_rotary_pos_emb = _spy_apply_rope
 
 
