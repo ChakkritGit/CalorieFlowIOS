@@ -125,6 +125,8 @@ actor CoreMLBackend {
             // ชน MAX_CONTEXT แล้วป้อนต่อไม่ได้ Core ML จะปฏิเสธคำขอทั้งก้อน
             guard past + 1 < Self.maxContext else { break }
 
+            try breakShapeSpecialization()
+
             // decode: ป้อนทีละ token ที่เหลือ Core ML อ่านจาก state ให้เอง
             logits = try predict(tokens: [next], pastLength: past, state: state)
             past += 1
@@ -132,6 +134,33 @@ actor CoreMLBackend {
 
         return tokenizer.decode(tokens: generated)
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// เรียกโมเดลด้วยรูปร่างอื่นบน state ทิ้ง — **ห้ามตัดออก**
+    ///
+    /// Core ML เก็บแผนการรันที่ specialize ตามรูปร่าง input ไว้ใช้ซ้ำ พอ decode
+    /// ป้อน q=1 ติดกันหลายครั้ง มันจะหยิบแผนเดิมมาใช้ทั้งที่ ctx โตขึ้นทุกครั้ง
+    /// ค่าที่กราฟคำนวณจาก shape จึงค้างอยู่ที่ของเก่า ผลคือ **สองก้าวแรกถูก
+    /// ก้าวที่สามเป็นต้นไปผิด** และผิดเหมือนกันทุก backend
+    ///
+    /// วัดจากโมเดลจริง โดยเทียบ decode ทีละ token กับการป้อนทั้งก้อนรวดเดียว
+    /// (ค่าที่ต่างกันควรอยู่ระดับปัดเศษ fp16 คือราว 0.02):
+    ///
+    ///     ไม่แทรก   k1=0.017  k2=0.025  k3=7.891  k4=9.713  k5=6.373
+    ///     แทรก      k1=0.017  k2=0.025  k3=0.023  k4=0.026  k5=0.025
+    ///
+    /// เห็นผลกับข้อความจริงชัดเจน — "The capital of France is" ต่อได้ว่า
+    /// " Paris. The capital of France is Paris." เมื่อแทรก ส่วนถ้าไม่แทรกจะได้
+    /// " Paris. The capital of course: true or Paris is a"
+    ///
+    /// การแทรกที่ **รูปร่างเดียวกัน** ไม่ช่วยเลย ต้องต่างรูปร่างจริง ๆ เท่านั้น
+    /// ซึ่งเป็นหลักฐานว่าเป็นเรื่องแผนที่ผูกกับรูปร่าง ไม่ใช่การหน่วงเขียน state
+    ///
+    /// ราคาที่จ่ายคือหนึ่ง forward ต่อหนึ่ง token — ราว 7 token/วินาที แทนที่จะ
+    /// เป็นสองเท่าของนั้น ถ้าวันหนึ่ง Core ML แก้บั๊กนี้ ให้ลบเมธอดนี้ทิ้งแล้ว
+    /// รันการเทียบข้างบนซ้ำเพื่อยืนยันก่อน
+    private func breakShapeSpecialization() throws {
+        _ = try predict(tokens: [0, 0], pastLength: 0, state: model.makeState())
     }
 
     // MARK: - Core ML plumbing

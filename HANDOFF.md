@@ -1,4 +1,4 @@
-# Checkpoint — สถานะงาน ณ 2026-08-13
+# Checkpoint — สถานะงาน ณ 2026-08-14
 
 เอกสารส่งต่อสำหรับ session ถัดไป อ่านไฟล์นี้ก่อนเริ่มงาน
 
@@ -28,27 +28,52 @@
 
 ## ค้างอยู่ — งานถัดไป
 
-### 1. แปลงโมเดลใหม่ (บล็อกทุกอย่างที่เหลือ)
+### 1. โมเดลใช้งานได้แล้ว — เหลือเรื่องคุณภาพภาษาไทย
 
-ไฟล์ `Qwen.mlpackage` ที่แปลงมารอบแรก **ใช้งานจริงไม่ได้** เพราะสามข้อ
+`LLM/Qwen-int4.mlpackage` (0.89 GB) ตอบเป็นภาษาอังกฤษได้ดี ราว 7 token/วินาที
+บน M-series ทดสอบด้วย `/tmp/qwencheck` ซึ่งใช้ `CoreMLBackend.swift` ตัวจริง
 
-1. `SEQ_LEN = 32` ตายตัว — prompt + คำตอบรวมกันได้แค่ 32 token
-2. `use_cache=False` — ไม่มี KV cache ทุก token ต้องคำนวณทั้ง sequence ใหม่
-3. fp16 ไม่ quantize → 2.9 GB — iOS โหลดไม่ขึ้น
+    Q: I ate 1800 kcal out of my 2000 kcal goal today. Suggest a dinner.
+    A: Try a grilled chicken breast with quinoa and steamed vegetables.
 
-`LLM/convert.py` **ถูกเขียนใหม่ทั้งไฟล์แล้ว** แก้ครบทั้งสามข้อ (stateful KV cache ผ่าน
-`ct.StateType`, `RangeDim` ให้ความยาวยืดหยุ่น, quantize int4 per-block → ~1.1 GB)
-สิ่งที่ต้องทำคือ**รันสคริปต์นี้บน Colab** แล้วเอา `.mlpackage` ที่ได้มาแทนของเดิม
+**ภาษาไทยยังไม่ดีพอ** — วนซ้ำและตอบไม่ตรงคำถาม ซึ่งคาดได้จากโมเดล 1.5B ที่ถูก
+บีบเหลือ 4 บิต ทางเลือกเรียงตามที่ควรลองก่อน:
 
-รันเสร็จแล้วสคริปต์จะพิมพ์ signature ออกมา — **ต้องเทียบกับที่ฝั่ง Swift คาดไว้**
-ถ้าไม่ตรงต้องแก้ `CoreMLBackend.predict`
+1. `QUANT_DTYPE = "int8"` (~1.6 GB) — ความละเอียดสูงขึ้น แลกกับขนาด
+2. `EMBEDDING_POLICY = "untie"` — เว้น embedding ไว้ที่ fp16 ช่วยเรื่องภาษาที่
+   token ยาว ซึ่งภาษาไทยเป็นแบบนั้น
+3. ให้ AI coach ตอบอังกฤษเสมอเมื่อใช้ Core ML แล้วเก็บภาษาไทยไว้ให้
+   Foundation Models กับ `RuleBasedAdvisor`
 
-| | ชื่อ | shape |
-| --- | --- | --- |
-| input | `input_ids` | `[1, 1…512]` INT32 |
-| input | `causal_mask` | `[1, 1, 1…512, 1…512]` FLOAT16 |
-| state | `keyCache` / `valueCache` | `[28, 1, 2, 512, 128]` FLOAT16 |
-| output | `logits` | `[1, query_len, 151936]` FLOAT16 |
+### กว่าจะได้โมเดลที่ใช้งานได้ — สี่บั๊กที่ต้องแก้ทั้งหมด
+
+ทุกข้อพังแบบเงียบ ไม่มี error ให้เห็นสักบรรทัด รายละเอียดเต็มอยู่ในคอมเมนต์ของ
+`LLM/convert.py` ตรงจุดที่แก้
+
+| อาการ | ต้นเหตุ |
+| --- | --- |
+| ป้อน token เดียวพอได้ เกินหนึ่งพัง | ตาราง cos/sin ของ RoPE ถูก quantize ไปด้วย |
+| ผลเปลี่ยนตาม computeUnits | attention score ล้น fp16 ตอน matmul — ย้ายการหารไปก่อน matmul |
+| ยังพ่นขยะทั้งที่ PyTorch fp16 ตอบถูก | coremltools ลด RMSNorm ที่ transformers ตั้งใจให้เป็น fp32 |
+| decode ก้าวที่ 3 เป็นต้นไปผิด | Core ML ใช้แผนที่ specialize ตามรูปร่างซ้ำ ดู `breakShapeSpecialization()` |
+
+ข้อสุดท้ายยังไม่ได้แก้ที่ต้นเหตุ — ใช้วิธีแทรกการเรียกรูปร่างอื่นคั่นทุกก้าว
+ซึ่งจ่ายด้วยความเร็วครึ่งหนึ่ง ถ้าจะแก้จริงต้องออกแบบกราฟใหม่ให้ decode ไม่มี
+มิติที่เปลี่ยนได้เลย (mask กว้างคงที่ 2304 + ส่งตำแหน่งเข้ามาเป็น input)
+
+### เครื่องมือทดสอบที่ใช้ไล่บั๊กพวกนี้
+
+อยู่ใน `LLM/` ทั้งหมด เก็บไว้เพราะถ้าแตะ `convert.py` อีกจะต้องใช้ซ้ำ
+
+| ไฟล์ | ใช้ตอนไหน |
+| --- | --- |
+| `verify_wrapper.py` | เทียบ `StatefulQwen` กับ transformers ธรรมดา ระดับ PyTorch |
+| `reference_logits.py` | ดึง logits อ้างอิงจาก PyTorch สำหรับ token id ที่กำหนด |
+| `debug_rope.py` | แยก layer 0 ออกมาแปลงเดี่ยว เทียบ Q/K หลัง RoPE |
+| `debug_layers.py` | attention 2 ชั้นใช้ cache ก้อนเดียวกัน — repro ขนาด 37 MB |
+
+`/tmp/qwencheck` เป็นตัวรันฝั่งแมค ใช้ `CoreMLBackend.swift` ผ่าน symlink จึง
+ทดสอบโค้ดตัวจริง ไม่ใช่โค้ดที่เขียนเลียนแบบ
 
 ### 2. ตัวดาวน์โหลดโมเดล — ยังไม่ได้ทำ
 
