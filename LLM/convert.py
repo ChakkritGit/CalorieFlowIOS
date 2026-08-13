@@ -13,8 +13,16 @@
 
     !pip install -q transformers==4.44.2 torch==2.4.1 coremltools==8.3 numpy==1.26.4
 
-ต้องใช้ coremltools 8 ขึ้นไป (stateful model) และเวอร์ชัน transformers ต้องตรึงไว้
-เพราะคลาส `Cache` ถูกรื้อบ่อยมาก รุ่นใหม่กว่านี้จะ trace ไม่ผ่าน
+**ติดตั้งเสร็จต้องสั่ง Runtime → Restart session ก่อนรันสคริปต์นี้** ไม่งั้น Python
+ยังถือโมดูลรุ่นที่ Colab ติดตั้งมาให้ค้างอยู่ในหน่วยความจำ pip ที่เพิ่งลงไปจะไม่มีผล
+สังเกตได้จาก traceback ที่ชี้ไปที่ `/usr/local/lib/python3.12/dist-packages`
+
+เวอร์ชันต้องตรงตามนี้จริง ๆ ไม่ใช่ "ใกล้เคียงก็พอ":
+
+- `transformers` — คลาส `Cache` ถูกรื้อ API หลายรอบ รุ่นใหม่บังคับให้ส่ง `layers`
+  ตอนสร้าง และเปลี่ยนวิธีส่ง attention mask ทำให้ trace ไม่ผ่าน
+- `coremltools` — ต้อง 8 ขึ้นไปถึงจะมี stateful model กับ int4
+- `torch` — coremltools 8.3 รองรับถึงราว 2.5 เท่านั้น ตัวที่ Colab ให้มาใหม่กว่านั้น
 
 โมเดลที่ได้ต้อง `minimum_deployment_target=iOS18` เป็นอย่างต่ำ — state กับ int4
 เป็นของใหม่ใน iOS 18 ทั้งคู่
@@ -33,6 +41,28 @@ from coremltools.optimize.coreml import (
 )
 from transformers import AutoModelForCausalLM
 from transformers.cache_utils import Cache
+
+
+# ── เช็กเวอร์ชันก่อนทำอะไรทั้งสิ้น ──────────────────────────────────────────
+#
+# เช็กตรงนี้เพราะถ้าปล่อยผ่านไป จะไปพังตอนสร้าง cache ซึ่งอยู่หลังโหลดโมเดล 3 GB
+# เสียเวลาฟรีหลายนาทีต่อรอบ
+def _require(module, expected):
+    import importlib
+
+    actual = importlib.import_module(module).__version__
+    if not actual.startswith(expected):
+        raise SystemExit(
+            f"{module} เป็น {actual} แต่ต้องการ {expected}.x\n"
+            "รัน: !pip install -q transformers==4.44.2 torch==2.4.1 "
+            "coremltools==8.3 numpy==1.26.4\n"
+            "แล้วสั่ง Runtime -> Restart session ก่อนรันสคริปต์นี้ใหม่"
+        )
+
+
+_require("transformers", "4.44")
+_require("torch", "2.4")
+_require("coremltools", "8.")
 
 MODEL_NAME = "Qwen/Qwen2.5-1.5B-Instruct"
 OUTPUT_PATH = "/content/Qwen.mlpackage"
