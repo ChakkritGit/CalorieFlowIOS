@@ -9,9 +9,11 @@ struct HistoryView: View {
 
     private var log: DailyLog? { store.logs[selectedDate] }
 
-    private var hasData: Bool {
-        guard let log else { return false }
-        return !log.foods.isEmpty || log.waterIntake > 0
+    private var hasData: Bool { log?.hasEntries ?? false }
+
+    /// เอาเฉพาะวันที่มีข้อมูลจริง ไม่ใช่ทุกวันที่มี record — ดู `DailyLog.hasEntries`
+    private var markedDates: Set<String> {
+        Set(store.logs.filter { $0.value.hasEntries }.keys)
     }
 
     var body: some View {
@@ -19,7 +21,7 @@ struct HistoryView: View {
             CalendarGrid(
                 month: $viewMonth,
                 selectedDate: $selectedDate,
-                markedDates: Set(store.logs.keys)
+                markedDates: markedDates
             )
 
             VStack(alignment: .leading, spacing: 16) {
@@ -30,6 +32,12 @@ struct HistoryView: View {
                 if let log, hasData {
                     summaryRow(t.totalCalories, "\(log.totalCalories) \(t.kcal)", tint: Palette.greenDeep)
                     summaryRow(t.waterShort, "\(log.waterIntake) ml", tint: Palette.blueDeep)
+
+                    // วันที่บันทึกแค่น้ำหนักก็นับว่ามีข้อมูลและได้จุดบนปฏิทิน
+                    // ถ้าไม่แสดงตรงนี้ การ์ดจะโชว์ 0 kcal / 0 ml เฉย ๆ โดยไม่บอกว่าจุดนั้นมาจากอะไร
+                    if let weight = log.weightRecorded {
+                        summaryRow(t.currentWeightCaption, "\(weight.clean) kg", tint: Palette.purple)
+                    }
 
                     ForEach(log.foods) { food in
                         HStack {

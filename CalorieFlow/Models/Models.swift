@@ -91,6 +91,17 @@ struct DailyLog: Codable, Equatable {
         self.date = date
     }
 
+    /// วันนี้มีอะไรถูกบันทึกไว้จริงหรือเปล่า
+    ///
+    /// ต่างจาก "มี record อยู่ใน `logs`" — record ถูกสร้างตั้งแต่แตะวันนั้นครั้งแรก
+    /// และไม่เคยถูกลบ ลบรายการอาหารตัวสุดท้ายออกแล้วจะเหลือ record เปล่าค้างไว้
+    /// ปฏิทินที่ทำเครื่องหมายจาก `logs.keys` จึงยังขึ้นจุดเขียวทั้งที่ไม่มีอะไรแล้ว
+    ///
+    /// นับน้ำหนักด้วย เพราะการอัปเดตน้ำหนักก็เขียนลง log ของวันนั้นเหมือนกัน
+    var hasEntries: Bool {
+        !foods.isEmpty || waterIntake > 0 || weightRecorded != nil
+    }
+
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         date = (try? c.decode(String.self, forKey: .date)) ?? ""
