@@ -715,6 +715,9 @@ def find_rope_consts(model, table_shape):
     return [name for name, shape in _const_outputs(model) if shape == table_shape]
 
 
+if QUANT_DTYPE is None:
+    print("ข้าม quantize ทั้งขั้น — เซฟเป็น fp16 ตามที่ตั้ง QUANT_DTYPE = None")
+else:
     rope_shape = (ROPE_TABLE_ROWS, HEAD_DIM)
     rope_consts = find_rope_consts(mlmodel, rope_shape)
     if len(rope_consts) != 2:
@@ -739,6 +742,24 @@ def find_rope_consts(model, table_shape):
         op_name_configs={name: None for name in rope_consts},
     )
     mlmodel = linear_quantize_weights(mlmodel, config=quant_config)
+
+# ── ยืนยันว่า quantize ทำงานจริง ก่อนจะเซฟ ─────────────────────────────────
+#
+# เคยพลาดมาแล้ว: ขั้น quantize หลุดไปอยู่ในบล็อกที่ไม่ถูกเรียก สคริปต์จึงเซฟไฟล์
+# fp16 3.1 GB ออกมาโดยใช้ชื่อ Qwen-int4 และไม่มี error อะไรเลย จับได้ตอนดูขนาด
+# ไฟล์เท่านั้น
+if QUANT_DTYPE is not None:
+    _quantized = any(
+        op.type == "constexpr_blockwise_shift_scale"
+        for function in mlmodel.get_spec().mlProgram.functions.values()
+        for block in function.block_specializations.values()
+        for op in block.operations
+    )
+    if not _quantized:
+        raise SystemExit(
+            f"ตั้ง QUANT_DTYPE = {QUANT_DTYPE!r} ไว้ แต่ในกราฟไม่มี const ที่ถูก quantize เลย\n"
+            "แปลว่าขั้น quantize ไม่ได้ทำงาน อย่าเซฟไฟล์นี้"
+        )
 
 print(f"Saving to {OUTPUT_PATH} ...")
 mlmodel.save(OUTPUT_PATH)
