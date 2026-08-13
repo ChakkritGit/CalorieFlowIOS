@@ -1,94 +1,200 @@
-# CalorieFlow — iOS (SwiftUI)
+<div align="center">
+  <img src="docs/icon.png" width="120" alt="CalorieFlow">
+  <h1>CalorieFlow — iOS</h1>
+  <p>บันทึกแคลอรี่และน้ำ พร้อมโค้ชโภชนาการที่ทำงานในเครื่องล้วน ๆ<br>ไม่ต่อเน็ต ไม่มีบัญชี ข้อมูลไม่ออกจากเครื่อง</p>
+  <p>
+    <img src="https://img.shields.io/badge/iOS-18%2B-000?logo=apple" alt="iOS 18+">
+    <img src="https://img.shields.io/badge/SwiftUI-blue" alt="SwiftUI">
+    <img src="https://img.shields.io/badge/Core%20ML-on--device-purple" alt="Core ML">
+  </p>
+</div>
 
-พอร์ตแอป [CalorieFlow](https://github.com/ChakkritGit/CalorieFlow) (React + Vite + Tailwind)
-มาเป็นแอป iOS เนทีฟด้วย SwiftUI
+พอร์ตมาจาก [CalorieFlow](https://github.com/ChakkritGit/CalorieFlow) เวอร์ชันเว็บ
+(React + Vite + Tailwind) เป็นแอป iOS เนทีฟด้วย SwiftUI
 
-## ความต้องการ
+---
 
-- macOS + Xcode 16 ขึ้นไป
-- iOS 17.0 ขึ้นไป (ใช้ `@Observable` และ Swift Charts)
+## หน้าตาแอป
 
-## วิธีเปิดโปรเจกต์
+### หน้าหลัก — ดูที่เดียวจบ
+
+วงแหวนบอกแคลอรี่ที่เหลือ ใต้ลงมาเป็นสถานะรวมของวัน น้ำที่ดื่ม และรายการอาหาร
+การ์ดโค้ชอยู่บนสุดเพราะเป็นสิ่งที่ควรอ่านก่อนตัดสินใจมื้อถัดไป
+
+<p>
+  <img src="docs/screenshots/home.png" width="240">
+  <img src="docs/screenshots/home-scroll.png" width="240">
+  <img src="docs/screenshots/add-food.png" width="240">
+</p>
+
+เพิ่มอาหารผ่านปุ่ม **+** ตรงกลางแถบล่าง ถ้าไม่รู้ว่าเมนูนั้นกี่แคลอรี่ กด
+**Estimate calories** ให้โมเดลเดาให้ แล้วแก้ทับได้เสมอ
+
+### โค้ช — ถามได้เหมือนคุยกับคน
+
+<p>
+  <img src="docs/screenshots/coach-chat.png" width="240">
+</p>
+
+โค้ชรู้บริบทของคุณอยู่แล้ว (เป้าหมาย แคลอรี่ที่เหลือ น้ำ สตรีค ค่าเฉลี่ยสัปดาห์)
+จึงถามสั้น ๆ ได้เลยว่ามื้อเย็นควรกินอะไร
+
+### ประวัติ — ปฏิทินที่บอกความจริง
+
+<p>
+  <img src="docs/screenshots/history.png" width="240">
+  <img src="docs/screenshots/history-day.png" width="240">
+</p>
+
+จุดเขียวขึ้นเฉพาะวันที่มีข้อมูลจริง วงกลมทึบคือวันที่เลือก วงขอบจาง ๆ คือวันนี้ —
+สองสถานะนี้เกิดพร้อมกันได้จึงต้องแยกให้ออก กดวันไหนก็เห็นแคลอรี่ น้ำ น้ำหนักที่ชั่งไว้
+และรายการอาหารของวันนั้น
+
+### สถิติ — เห็นแนวโน้ม ไม่ใช่แค่ตัวเลขวันนี้
+
+<p>
+  <img src="docs/screenshots/stats.png" width="240">
+  <img src="docs/screenshots/stats-scroll.png" width="240">
+</p>
+
+กราฟ 7 วันย้อนหลังพร้อมเส้นประบอกเป้าหมาย ด้านบนเป็นสรุปสัปดาห์ที่โค้ชเขียนให้
+
+### ตั้งค่า — แยกเป็นหมวด ไม่ต้องเลื่อนยาว
+
+<p>
+  <img src="docs/screenshots/settings.png" width="240">
+  <img src="docs/screenshots/profile.png" width="240">
+  <img src="docs/screenshots/goals.png" width="240">
+</p>
+<p>
+  <img src="docs/screenshots/appearance.png" width="240">
+  <img src="docs/screenshots/data.png" width="240">
+</p>
+
+ธีมมีตามระบบ / สว่าง / มืด · ภาษามีตามระบบ / ไทย / English · ข้อมูลสำรองเป็นไฟล์
+`.wgd` ไฟล์เดียวกับเวอร์ชันเว็บ ย้ายข้ามเครื่องหรือข้ามแพลตฟอร์มได้
+
+### โมเดล AI — โหลดเมื่ออยากได้ ไม่โหลดก็ใช้ได้
+
+<p>
+  <img src="docs/screenshots/model-download.png" width="240">
+  <img src="docs/screenshots/model-ready.png" width="240">
+</p>
+
+บอกขนาดไว้บนปุ่มตั้งแต่ก่อนกด เพราะกว่าหนึ่งกิกะไบต์ควรเป็นการตัดสินใจที่เห็นตัวเลขก่อน
+ไม่โหลดก็ยังใช้แอปได้ครบ โค้ชจะเปลี่ยนไปให้คำแนะนำแบบกฎธรรมดาแทน
+
+---
+
+## โค้ชทำงานยังไง
+
+มี backend สามชั้น ไล่ลงมาเรื่อย ๆ จนกว่าจะมีตัวที่ตอบได้ **ทุกชั้นทำงานในเครื่องทั้งหมด**
+
+| ชั้น | ใช้เมื่อ | ได้อะไร |
+| --- | --- | --- |
+| **Foundation Models** | iOS 26+ และเปิด Apple Intelligence ไว้ | คุณภาพดีที่สุด ไม่กินพื้นที่เพิ่ม |
+| **Core ML** (Qwen2.5-1.5B int8) | โหลดโมเดลมาแล้ว | ตอบเป็นภาษาธรรมชาติได้ ใช้พื้นที่ 1.6 GB |
+| **RuleBasedAdvisor** | ไม่มีสองตัวบน | ข้อความสำเร็จรูปตามสถานการณ์ ใช้ได้ทุกเครื่อง |
+
+โค้ชโผล่สี่จุด: การ์ดหน้าหลัก · สรุปรายสัปดาห์ในหน้าสถิติ · ปุ่มประมาณแคลอรี่ตอนกรอกอาหาร ·
+หน้าแชท — ทั้งสี่จุดไล่ backend ชุดเดียวกัน
+
+`Services/AICoach.swift` เป็นจุดเดียวที่คุยกับโมเดล เพิ่ม backend ใหม่ไม่ต้องแตะ view เลย
+
+---
+
+## เริ่มใช้งาน
 
 ```bash
 open CalorieFlow.xcodeproj
 ```
 
-โปรเจกต์ใช้ *file-system synchronized group* ของ Xcode 16 — ไฟล์ทุกไฟล์ในโฟลเดอร์
+ต้องใช้ **Xcode 26 ขึ้นไป** และ **iOS 18 ขึ้นไป** (stateful Core ML กับ int4/int8
+เป็นของใหม่ใน iOS 18) ก่อนรันบนเครื่องจริงให้ตั้ง Signing Team และเปลี่ยน
+`PRODUCT_BUNDLE_IDENTIFIER` เป็นของคุณเอง
+
+โปรเจกต์ใช้ file-system synchronized group ของ Xcode — ไฟล์ทุกไฟล์ในโฟลเดอร์
 `CalorieFlow/` ถูกคอมไพล์อัตโนมัติ ไม่ต้องเพิ่มเข้า target เอง
 
-ก่อนรันบนเครื่องจริง ให้ตั้ง Signing Team และเปลี่ยน
-`PRODUCT_BUNDLE_IDENTIFIER` (ค่าเริ่มต้น `com.chakkrit.calorieflow`) เป็นของคุณเอง
+> **โมเดล Core ML รันบน simulator ไม่ได้** — Espresso ในตัว simulator ถูก build มา
+> โดยไม่มีเอนจิน MPSGraph จะได้ error `-14` ตอนสร้าง execution plan
+> ต้องทดสอบบนเครื่องจริง ส่วนฟีเจอร์อื่นทั้งหมดใช้ simulator ได้ตามปกติ
 
-## โครงสร้าง
+### ถ้าจะโฮสต์โมเดลเอง
+
+`LLM/convert.py` แปลง Qwen2.5-1.5B-Instruct เป็น Core ML แบบ stateful (รันบน Colab)
+แล้วอัปสามไฟล์ที่ได้ขึ้นที่ไหนสักที่ที่โหลดตรงได้
+
+```
+Qwen-int8.mlpackage.zip
+tokenizer.json
+tokenizer_config.json
+```
+
+จากนั้นแก้ `ModelDownloader.downloadBaseURL` ให้ชี้ไปที่นั่น — ที่เหลือทำงานเอง
+
+---
+
+## โครงสร้างโค้ด
 
 | ไฟล์ | หน้าที่ | เทียบกับเวอร์ชันเว็บ |
 | --- | --- | --- |
-| `Models/Models.swift` | `UserProfile`, `DailyLog`, `FoodItem`, enum ต่าง ๆ | `src/types/types.ts` |
-| `Services/Calculations.swift` | TDEE (Mifflin-St Jeor) + คีย์วันที่ `YYYY-MM-DD` ตามเวลาเครื่อง | `calculateTDEE`, `getTodayDateString` |
-| `Services/AppStore.swift` | สถานะกลาง + บันทึกลงไฟล์ JSON + สตรีค + สรุปรายสัปดาห์/รายปี | `useState` + `src/services/db.ts` (IndexedDB) |
-| `Services/Preferences.swift` | ธีม (ตามระบบ/สว่าง/มืด) และภาษา เก็บใน UserDefaults | — |
+| `Models/Models.swift` | `UserProfile`, `DailyLog`, `FoodItem` | `src/types/types.ts` |
+| `Services/Calculations.swift` | TDEE (Mifflin-St Jeor) + คีย์วันที่ตามเวลาเครื่อง | `calculateTDEE` |
+| `Services/AppStore.swift` | สถานะกลาง + บันทึกลง JSON + สตรีค + สรุปรายสัปดาห์ | `useState` + IndexedDB |
+| `Services/AICoach.swift` | ไล่ backend สามชั้น — จุดเดียวที่คุยกับโมเดล | — |
+| `Services/CoreMLBackend.swift` | รันโมเดล stateful + tokenizer + sampling | — |
+| `Services/ModelDownloader.swift` | ดาวน์โหลด แตก zip คอมไพล์ ลบไฟล์กลาง | — |
+| `Services/Preferences.swift` | ธีมและภาษา เก็บใน UserDefaults | — |
 | `Resources/Strings.swift` | ตารางข้อความไทย/อังกฤษ (`L10n`) | ข้อความไทยฝังในโค้ด |
-| `Views/RootView.swift` | `TabView` + แถบล่างที่วาดเองพร้อมปุ่ม + ตรงกลาง | `<nav>` + `TabButton` |
-| `Views/DashboardView.swift` | วงแหวนแคลอรี่ สตรีค น้ำ รายการอาหารวันนี้ | `renderDashboard` |
-| `Views/HistoryView.swift` | ปฏิทิน พ.ศ. + สรุปรายวัน | `renderHistory`, `renderCalendar` |
-| `Views/AddFoodView.swift` | ฟอร์มเพิ่มอาหาร | `renderAddFood` |
-| `Views/StatsView.swift` | กราฟแท่ง 7 วัน (Swift Charts) + ค่าเฉลี่ย | `renderStats` (Recharts) |
-| `Views/SettingsView.swift` | โปรไฟล์ เป้าหมาย นำเข้า/ส่งออก `.wgd` | `renderSettings` |
-| `Views/WrappedStoryView.swift` | สรุปประจำปีแบบสตอรี่ 5 หน้า | `WrappedStory` |
-| `Views/ShareCardView.swift` | การ์ดสรุป 375×667 สำหรับแชร์ | `<div id="story-capture">` + html2canvas |
+| `Views/RootView.swift` | `TabView` + แถบล่างที่วาดเอง | `<nav>` + `TabButton` |
+| `Views/DashboardView.swift` | วงแหวนแคลอรี่ สตรีค น้ำ รายการวันนี้ | `renderDashboard` |
+| `Views/HistoryView.swift` | ปฏิทิน + สรุปรายวัน | `renderHistory` |
+| `Views/StatsView.swift` | กราฟ 7 วัน (Swift Charts) | `renderStats` (Recharts) |
+| `Views/SettingsView.swift` | หมวดหมู่ + หน้าย่อย | `renderSettings` |
+| `Views/WrappedStoryView.swift` | สรุปประจำปีแบบสตอรี่ | `WrappedStory` |
+| `Views/ShareCardView.swift` | การ์ดแชร์ 375×667 | html2canvas |
 
-## สิ่งที่เปลี่ยนวิธีทำ (แต่ผลลัพธ์เหมือนเดิม)
+### สิ่งที่เปลี่ยนวิธีทำ แต่ผลลัพธ์เหมือนเดิม
 
 | เว็บ | iOS |
 | --- | --- |
-| IndexedDB | ไฟล์ JSON สองไฟล์ใน Application Support |
-| html2canvas | `ImageRenderer` ของ SwiftUI |
+| IndexedDB | ไฟล์ JSON ใน Application Support |
+| html2canvas | `ImageRenderer` |
 | `navigator.share()` | `UIActivityViewController` |
 | `<input type="file">` | `.fileImporter` |
-| ดาวน์โหลดผ่าน `<a download>` | เขียนลง temp แล้วเปิด share sheet |
 | Recharts | Swift Charts |
-| ฟอนต์ Anuphan | ฟอนต์ระบบ (รองรับภาษาไทยอยู่แล้ว) |
+| ฟอนต์ Anuphan | ฟอนต์ระบบ (รองรับไทยอยู่แล้ว) |
 
-## ธีมและภาษา
+---
 
-- **ธีม** — เลือกได้ 3 แบบ: ตามระบบ / สว่าง / มืด สีทั้งหมดอยู่ใน `Palette` และประกาศเป็น
-  `UIColor` แบบ dynamic จึงสลับตาม trait เองโดยไม่ต้องอ่าน `@Environment(\.colorScheme)`
-  ในทุก view · การ์ดแชร์และหน้า Wrapped ใช้สีคงที่เสมอ เพราะเป็นภาพที่ส่งออกไปนอกแอป
-- **ภาษา** — ไทย / English สลับได้ทันทีโดยไม่ต้องรีสตาร์ท จึงไม่ใช้ `NSLocalizedString`
-  (ซึ่งผูกกับภาษาของระบบ) แต่เก็บข้อความไว้ใน `L10n` แล้วส่งผ่าน environment key `\.l10n`
-  ค่าเริ่มต้นอ่านจากภาษาของระบบ
+## ข้อตัดสินใจที่มีเหตุผลอยู่เบื้องหลัง
 
-## คำแนะนำจาก AI
+- **ไม่ใช้ `NSLocalizedString`** — มันผูกกับภาษาของระบบ สลับในแอปไม่ได้ถ้าไม่รีสตาร์ท
+  จึงเก็บข้อความไว้ใน `L10n` แล้วส่งผ่าน environment key `\.l10n` แทน
+- **ธีมคุมที่ `UIWindow.overrideUserInterfaceStyle`** ไม่ใช่ `.preferredColorScheme` —
+  `Palette` เป็น dynamic `UIColor` ซึ่ง resolve จาก trait ของ UIKit ส่วน
+  `preferredColorScheme` เขียนแค่ environment ของ SwiftUI สีจึงไม่ตาม
+- **แถบแท็บวาดเองทับ `TabView` ที่ซ่อนแถบมาตรฐาน** — เพราะ `TabView` วางปุ่ม +
+  ทรงกลมยกกลางไม่ได้ แต่ยังอยากได้ state และตำแหน่ง scroll แยกต่อแท็บที่มันให้มา
+- **การ์ดแชร์กับหน้า Wrapped ใช้สีคงที่** — เป็นภาพที่ส่งออกนอกแอป ไม่ควรเปลี่ยนตามธีมคนส่ง
+- **launch screen เป็น storyboard** — Xcode เปิดให้ตั้งผ่าน `INFOPLIST_KEY_` แค่สองคีย์
+  ส่วนสีพื้นหลังกับรูปอยู่ใน dict ซ้อนซึ่งกลไกนั้นแปลงให้ไม่ได้
 
-ใช้ **Foundation Models** (LLM ในเครื่องของ Apple Intelligence) — ไม่ต่อเน็ต ไม่มีค่าใช้จ่าย
-ข้อมูลผู้ใช้ไม่ออกจากเครื่อง · โผล่ 4 จุด: การ์ดบนหน้าหลัก, สรุปรายสัปดาห์ในหน้าสถิติ,
-ปุ่มประมาณแคลอรี่ตอนกรอกอาหาร (guided generation คืนตัวเลขตรง ๆ) และหน้าแชท
+รายละเอียดของบั๊กที่เจอระหว่างแปลงโมเดล Core ML (สี่ตัว ทุกตัวพังแบบเงียบ ไม่มี error)
+อยู่ใน [`HANDOFF.md`](HANDOFF.md) และในคอมเมนต์ของ `LLM/convert.py` ตรงจุดที่แก้
 
-`Services/AICoach.swift` **เป็นไฟล์เดียวที่เรียก FoundationModels โดยตรง** — ถ้า API
-เปลี่ยนหรือจะเพิ่ม backend อื่น (Core ML, MLX) แก้ที่นี่ที่เดียว ไม่ต้องแตะ view
+---
 
-เครื่องที่ใช้โมเดลไม่ได้ (ต่ำกว่า iOS 26, ชิปไม่รองรับ, ปิด Apple Intelligence ไว้
-หรือผู้ใช้ปิดสวิตช์ในหน้าตั้งค่า) จะถอยไปใช้ `RuleBasedAdvisor` อัตโนมัติ —
-ทุกฟีเจอร์ยังทำงาน เพียงแต่ข้อความเป็นแบบสำเร็จรูป และปุ่มประมาณแคลอรี่จะใช้
-ตารางเมนูที่พบบ่อยแทน
+## ความเข้ากันได้ของไฟล์สำรอง
 
-## แถบแท็บล่าง
+ไฟล์ `.wgd` ที่ส่งออกจากเวอร์ชันเว็บนำเข้าในแอป iOS ได้เลย ตัวถอดรหัสรองรับ ISO8601
+ทั้งแบบมีและไม่มีเศษวินาที (JavaScript `toISOString()` ใส่มิลลิวินาทีมาด้วย) และถอยไปใช้
+ค่าเริ่มต้นเมื่อฟิลด์หายหรือชนิดไม่ตรง
 
-ใช้ `TabView` (แต่ละแท็บจึงเก็บ state และตำแหน่ง scroll ของตัวเองไว้) แล้วซ่อนแถบมาตรฐาน
-ด้วย `.toolbar(.hidden, for: .tabBar)` และวาดแถบเองทับ เพราะ `TabView` วางปุ่ม + ทรงกลม
-ยกกลางไม่ได้ · ปุ่ม + เปิด `AddFoodView` เป็น sheet แทนที่จะเป็นแท็บ
+## ที่ยังไม่ได้ทำ
 
-## ความเข้ากันได้ของไฟล์สำรอง (.wgd)
-
-ไฟล์ `.wgd` ที่ส่งออกจากเวอร์ชันเว็บนำเข้าในแอป iOS ได้เลย ตัวถอดรหัสรองรับ
-ISO8601 ทั้งแบบมีและไม่มีเศษวินาที (JavaScript `toISOString()` ใส่มิลลิวินาทีมาด้วย)
-และถอยไปใช้ค่าเริ่มต้นเมื่อฟิลด์หายหรือชนิดไม่ตรง
-
-## ยังไม่ได้ทำ
-
-- ไอคอนแอป (`Assets.xcassets/AppIcon.appiconset` ยังว่าง — ใส่ PNG 1024×1024 ได้เลย)
-- ฟอนต์ Anuphan — ถ้าต้องการหน้าตาตรงกับเว็บเป๊ะ ให้ก๊อป `.ttf` จาก
-  `src/assets/fonts/` มาไว้ในโฟลเดอร์ `CalorieFlow/` แล้วเพิ่ม
-  `INFOPLIST_KEY_UIAppFonts` หรือใส่ `Info.plist` เอง
-- โปรเจกต์นี้เขียนบน Windows จึงยังไม่ได้คอมไพล์จริง — ควร build บน macOS หนึ่งรอบก่อนใช้งาน
+- ยังไม่ได้ทดสอบ `CoreMLBackend` บนเครื่องจริง (simulator รันไม่ได้ด้วยเหตุผลข้างบน)
+- คุณภาพภาษาไทยของโมเดล 1.5B ยังสู้ภาษาอังกฤษไม่ได้ — ถ้าอยากดันต่อ ลอง
+  `EMBEDDING_POLICY = "untie"` ใน `convert.py` ซึ่งเว้น embedding ไว้ที่ fp16
+- ฟอนต์ Anuphan — ถ้าอยากให้ตรงกับเว็บเป๊ะ ต้องเพิ่ม `INFOPLIST_KEY_UIAppFonts`
