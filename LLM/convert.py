@@ -70,6 +70,11 @@ decode ทีละ token: q = 1, ctx = past + 1, mask เป็นศูนย�
 
 ── กับดักที่เสียเวลาไปแล้วรอบละครั้ง ───────────────────────────────────────
 
+`AttributeError: 'list' object has no attribute 'val'` ตอนเรียก get_weights_metadata
+    บั๊กของ coremltools 8.3 เอง มันวน `child_op.inputs.items()` แล้วสะดุด op ที่
+    รับ input เป็น list เช่น `concat` ไม่เกี่ยวกับโมเดล เลี่ยงด้วยการเดิน
+    protobuf ของ spec เองใน find_const_names()
+
 โมเดลแปลงผ่าน ไม่มี error แต่พ่นข้อความไร้ความหมาย
     ตาราง cos/sin ของ RoPE ถูก quantize ไปด้วย ดูคอมเมนต์ยาวที่ rope_consts
     ข้างล่าง อาการเฉพาะตัวคือ **ป้อน token เดียวยังพอได้ เกินหนึ่งพังทันที**
@@ -119,7 +124,6 @@ import coremltools as ct
 from coremltools.optimize.coreml import (
     OpLinearQuantizerConfig,
     OptimizationConfig,
-    get_weights_metadata,
     linear_quantize_weights,
 )
 from transformers import AutoModelForCausalLM
@@ -442,13 +446,31 @@ print("Quantizing to 4-bit...")
 # ไม่ตอบ " Paris"
 #
 # ยกเว้นสองก้อนนี้แล้วไฟล์โตขึ้นราว 13 MB จากทั้งหมดกว่า 800 MB
-weight_meta = get_weights_metadata(mlmodel, weight_threshold=0)
-rope_consts = [name for name in weight_meta if "rotary_emb" in name]
+def find_const_names(model, needle):
+    """คืนชื่อ const ทุกก้อนในกราฟที่ชื่อมี `needle`
+
+    เดินบน protobuf ของ spec เองแทนที่จะใช้ `get_weights_metadata` เพราะตัวนั้น
+    พังใน coremltools 8.3 — มันวน `child_op.inputs.items()` แล้วสะดุด op ที่รับ
+    input เป็น list (เช่น `concat`) ได้ AttributeError: 'list' object has no
+    attribute 'val' ซึ่งไม่เกี่ยวกับโมเดลเราเลย
+
+    ใน MIL ชื่อของ const คือชื่อ output ของมัน
+    """
+    names = []
+    for function in model.get_spec().mlProgram.functions.values():
+        for block in function.block_specializations.values():
+            for op in block.operations:
+                if op.type == "const":
+                    names += [o.name for o in op.outputs if needle in o.name]
+    return names
+
+
+rope_consts = find_const_names(mlmodel, "rotary_emb")
 if not rope_consts:
     raise SystemExit(
         "หา const ของ RoPE ไม่เจอ — ชื่ออาจเปลี่ยนไปตามรุ่น transformers\n"
         "อย่าปล่อยผ่าน ถ้า quantize ทับตารางนี้โมเดลจะพ่นขยะโดยไม่มี error\n"
-        f"ชื่อ const ที่มีทั้งหมด: {sorted(weight_meta)[:40]}"
+        "ลองหาชื่อที่ใกล้เคียงด้วย find_const_names(mlmodel, 'cos') ดูก่อน"
     )
 print(f"เว้นไม่ quantize {len(rope_consts)} ก้อน: {rope_consts}")
 
