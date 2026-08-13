@@ -38,6 +38,22 @@ actor CoreMLBackend {
     private let tokenizer: Tokenizer
     private let endOfTurn: Int
 
+    /// backend ที่ให้ Core ML ใช้
+    ///
+    /// เคยเป็น `.all` แล้วแอปแครชบนเครื่องจริงตั้งแต่การเรียกครั้งแรก:
+    ///
+    ///     MetalPerformanceShadersGraph ... GPUMemrefOps.mm:608: failed assertion
+    ///     `Failed to resolve dynamic dimension 3 (got -9223372036854775808)'
+    ///
+    /// ค่านั้นคือ `Int64.min` ซึ่งเป็นค่าที่ใช้แทน "มิติที่ยังไม่ถูกกำหนด" — MPSGraph
+    /// แก้ขนาดของมิติที่ 3 (ความยาว key ที่มาจากการเฉือน cache) ไม่ออก แล้ว assert
+    /// ตายทั้งโปรเซส ไม่ใช่ throw จึง `try?` รับไม่ได้
+    ///
+    /// ตัด GPU ออกเพื่อเลี่ยงเส้นทาง MPSGraph ทั้งเส้น — บนแมคเราวัดแล้วว่า `.all`
+    /// กับ `.cpuAndGPU` ให้ผลถูกต้อง ส่วน `.cpuOnly` สร้าง execution plan ไม่ได้เลย
+    /// (error -14) ดังนั้นถ้า ANE รันไหว นี่คือทางที่เหลืออยู่
+    private static let computeUnits: MLComputeUnits = .cpuAndNeuralEngine
+
     init() async throws {
         guard let modelURL = ModelStore.compiledModelURL,
               let tokenizerFolder = ModelStore.tokenizerFolderURL else {
@@ -45,9 +61,7 @@ actor CoreMLBackend {
         }
 
         let configuration = MLModelConfiguration()
-        // โมเดลภาษาขนาดนี้รันบน Neural Engine ได้ดีที่สุด แต่บางเลเยอร์ถอยไป GPU
-        // เอง `.all` ปล่อยให้ Core ML เลือกต่อ op ไม่ใช่บังคับทั้งกราฟ
-        configuration.computeUnits = .all
+        configuration.computeUnits = Self.computeUnits
 
         model = try await MLModel.load(contentsOf: modelURL, configuration: configuration)
 
@@ -97,6 +111,10 @@ actor CoreMLBackend {
         if tokens.count > budget {
             tokens = Array(tokens.suffix(budget))
         }
+
+        // ปักธงคร่อมการเรียกโมเดลทั้งชุด เพราะจุดที่ assert ได้คือ `predict`
+        await MainActor.run { ModelStore.markInFlight() }
+        defer { Task { @MainActor in ModelStore.clearInFlight() } }
 
         let state = model.makeState()
 
@@ -285,6 +303,32 @@ actor CoreMLBackend {
 /// ตัวโหลดไฟล์คือ `ModelDownloader` ซึ่งผู้ใช้ต้องกดสั่งเอง ระหว่างที่ยังไม่มีไฟล์
 /// `compiledModelURL` คืน nil ทำให้ `AICoach` ถอยไปใช้ `RuleBasedAdvisor` โดยไม่พัง
 enum ModelStore {
+    /// ตัวกันแครชวนซ้ำ
+    ///
+    /// การเรียกโมเดลอาจ **assert ตายทั้งโปรเซส** ไม่ใช่ throw (เจอมาแล้วกับ
+    /// MPSGraph ที่แก้มิติไม่ออก) `do/catch` จึงช่วยอะไรไม่ได้เลย และเพราะการ์ด
+    /// คำแนะนำเรียกโมเดลตั้งแต่เปิดแอป ผลคือแอปตายทุกครั้งที่เปิด เข้าไปลบโมเดล
+    /// ในหน้าตั้งค่าก็ไม่ทัน
+    ///
+    /// จึงปักธงไว้ก่อนเรียกครั้งแรกและถอนออกเมื่อรอดกลับมา ถ้าเปิดแอปมาแล้วเจอธง
+    /// ค้างอยู่ แปลว่ารอบก่อนตายคาที่ — ปิดการใช้โมเดลไปเลย ให้ผู้ใช้ยังเข้าแอปได้
+    private static let crashFlagKey = "calorieflow_coreml_in_flight"
+
+    /// รอบก่อนแครชกลางการเรียกโมเดลหรือเปล่า — อ่านครั้งเดียวตอนเปิดแอป
+    static let crashedLastRun: Bool = {
+        let flagged = UserDefaults.standard.bool(forKey: crashFlagKey)
+        UserDefaults.standard.set(false, forKey: crashFlagKey)
+        return flagged
+    }()
+
+    static func markInFlight() {
+        UserDefaults.standard.set(true, forKey: crashFlagKey)
+    }
+
+    static func clearInFlight() {
+        UserDefaults.standard.set(false, forKey: crashFlagKey)
+    }
+
     static var directory: URL? {
         try? FileManager.default.url(
             for: .applicationSupportDirectory,
@@ -296,6 +340,11 @@ enum ModelStore {
 
     /// Core ML ต้องการ `.mlmodelc` ที่คอมไพล์แล้ว — คอมไพล์ `.mlpackage` ครั้งเดียว
     /// ตอนดาวน์โหลดเสร็จด้วย `MLModel.compileModel(at:)` แล้วเก็บผลไว้
+    /// ใช้โมเดลได้ไหม — ไฟล์ครบอย่างเดียวไม่พอ ต้องไม่เพิ่งแครชคาการเรียกด้วย
+    static var isUsable: Bool {
+        !crashedLastRun && compiledModelURL != nil && tokenizerFolderURL != nil
+    }
+
     static var compiledModelURL: URL? {
         guard let url = directory?.appendingPathComponent("Qwen.mlmodelc") else { return nil }
         return FileManager.default.fileExists(atPath: url.path) ? url : nil

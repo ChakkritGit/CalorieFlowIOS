@@ -104,9 +104,7 @@ final class AICoach {
         return coreMLIsInstalled ? .ready : .unsupported(reason: "requiresOS")
     }
 
-    private static var coreMLIsInstalled: Bool {
-        ModelStore.compiledModelURL != nil && ModelStore.tokenizerFolderURL != nil
-    }
+    private static var coreMLIsInstalled: Bool { ModelStore.isUsable }
 
     /// ข้อความอธิบายสาเหตุที่ใช้ AI ไม่ได้ แปลตามภาษาที่เลือก
     func unsupportedReason(_ t: L10n) -> String? {
@@ -350,6 +348,13 @@ final class AICoach {
     @MainActor
     private func coreML() async -> CoreMLBackend? {
         guard isEnabled, !coreMLFailed else { return nil }
+
+        // รอบก่อนแครชคาการเรียกโมเดล อย่าไปแตะอีก ไม่งั้นแอปจะตายทุกครั้งที่เปิด
+        guard ModelStore.isUsable else {
+            aiLog.error("ข้ามโมเดล Core ML — รอบก่อนแครชคาการเรียก")
+            coreMLFailed = true
+            return nil
+        }
         if let existing = coreMLBackend { return existing }
 
         do {
