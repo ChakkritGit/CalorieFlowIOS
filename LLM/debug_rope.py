@@ -1,9 +1,9 @@
-"""แยกเฉพาะ q_proj/k_proj + RoPE ของ layer 0 ออกมาแปลงเดี่ยว ๆ แล้วเทียบกับ PyTorch
+"""แยก layer 0 ออกมาแปลงเดี่ยว ๆ แล้วเทียบ Q/K หลัง RoPE กับ PyTorch
 
-ทำไมต้องเล็กขนาดนี้ — เพราะโมเดลเต็มแปลงทีนึงกินเวลาหลายสิบนาทีและเคย OOM มาแล้ว
+ทำไมต้องเล็กขนาดนี้ — โมเดลเต็มแปลงทีนึงกินเวลาหลายสิบนาทีและเคย OOM มาแล้ว
 ส่วนนี้มีน้ำหนักราว 2.7M ตัว แปลงเสร็จในไม่กี่วินาที ไฟล์ไม่กี่ MB ส่งข้ามเครื่องง่าย
 
-เหตุผลที่สงสัยตรงนี้ — สรุปจากที่ไล่มา:
+เหตุผลที่สงสัย RoPE — สรุปจากที่ไล่มา:
 
 - ctx = 1 ผลตรงกับ PyTorch เป๊ะ, ctx >= 2 พังทุกกรณี
 - **ที่ ctx = 1 มี key ตัวเดียว softmax ของค่าเดียวได้ 1.0 เสมอ ค่า K จึงไม่มีผล
@@ -13,9 +13,10 @@
 - ตัดไปแล้ว: quantize (int8 พังเท่า int4), mask (ลองครบทุกแบบ), tokenizer,
   ค่าที่ใช้ปิด mask, เนื้อใน cache (ตรวจแล้วว่าถูกใช้จริง)
 
-รับ hidden_states เข้ามาตรง ๆ แทนที่จะผ่าน embedding เพื่อให้ไฟล์เล็กพอส่งได้
-(embedding อย่างเดียว 151936 x 1536 = 466 MB) ตำแหน่งยังคำนวณจาก shape ของ
-causal_mask เหมือนของจริงทุกประการ
+โครงสร้างเหมือน `StatefulQwen` ทุกอย่าง ต่างแค่มี layer เดียวและรับ hidden_states
+เข้ามาตรง ๆ แทนที่จะผ่าน embedding (embedding อย่างเดียว 151936 x 1536 = 466 MB
+ใหญ่เกินจะส่งข้ามเครื่อง) — cache ยังมีจริงเพราะ attention ต้องใช้ `kv_seq_len`
+ในการตัดตาราง cos/sin ถ้าไม่มี cache ตารางจะสั้นกว่าตำแหน่งที่ gather แล้วหลุดขอบ
 
     !python /content/debug_rope.py
 
@@ -27,7 +28,9 @@ causal_mask เหมือนของจริงทุกประการ
 import numpy as np
 import torch
 import coremltools as ct
+import transformers.models.qwen2.modeling_qwen2 as qwen2_mod
 from transformers import AutoModelForCausalLM
+from transformers.cache_utils import Cache
 
 MODEL_NAME = "Qwen/Qwen2.5-1.5B-Instruct"
 MAX_CONTEXT = 2304
@@ -42,42 +45,94 @@ full = AutoModelForCausalLM.from_pretrained(
 )
 full.eval()
 
-layer = full.model.layers[0]
-attn = layer.self_attn
-rotary = attn.rotary_emb
+attn = full.model.layers[0].self_attn
 hidden_size = full.config.hidden_size
+head_dim = hidden_size // full.config.num_attention_heads
+
+
+# ── cache ตัวเดียวกับใน convert.py ย่อเหลือ layer เดียว ────────────────────
+class SliceUpdateKeyValueCache(Cache):
+    def __init__(self, *, k, v, max_context):
+        super().__init__()
+        self.past_seen_tokens = 0
+        self.max_context = max_context
+        self.k = k
+        self.v = v
+
+    def update(self, k_state, v_state, layer_idx, cache_kwargs=None):
+        begin = self.past_seen_tokens
+        end = self.past_seen_tokens + k_state.shape[-2]
+        self.k[layer_idx, :, :, begin:end, :] = k_state
+        self.v[layer_idx, :, :, begin:end, :] = v_state
+        return self.k[layer_idx, :, :, :end, :], self.v[layer_idx, :, :, :end, :]
+
+    def get_seq_length(self, layer_idx=0):
+        return self.past_seen_tokens
+
+    def get_max_length(self):
+        return self.max_context
+
+    def get_max_cache_shape(self):
+        return self.max_context
+
+
+# ── ดัก Q/K ที่ออกจาก apply_rotary_pos_emb ตัวจริง ────────────────────────
+#
+# ไม่เรียก apply_rotary_pos_emb เองเพราะ signature เปลี่ยนไปมาตามรุ่น (4.44 ยัง
+# บังคับ position_ids ส่วนรุ่นใหม่รับ cos/sin ที่เลือกตำแหน่งมาแล้ว) — เรียก
+# attention ตัวจริงแล้วดักค่าออกมาแทน ได้เส้นทางเดียวกับตอนแปลงจริงแน่นอน
+_orig_apply_rope = qwen2_mod.apply_rotary_pos_emb
+_captured = {}
+
+
+def _spy_apply_rope(*args, **kwargs):
+    q, k = _orig_apply_rope(*args, **kwargs)
+    _captured["q"], _captured["k"] = q, k
+    return q, k
+
+
+qwen2_mod.apply_rotary_pos_emb = _spy_apply_rope
 
 
 class RopeProbe(torch.nn.Module):
-    """คำนวณ Q/K หลังใส่ RoPE ของ layer 0 — เลียนแบบเส้นทางจริงทุกขั้น
+    """คืน Q/K หลังใส่ RoPE ของ layer 0
 
-    ตำแหน่งมาจาก `causal_mask.shape[-1] - hidden.shape[1]` เหมือน StatefulQwen
-    ตัวจริง ไม่ได้รับ position_ids เข้ามาตรง ๆ เพราะต้องการทดสอบเส้นทางเดียวกัน
+    ตำแหน่งคำนวณจาก `causal_mask.shape[-1] - hidden.shape[1]` เหมือน
+    `StatefulQwen` ตัวจริง เพื่อให้ซับกราฟที่คำนวณตำแหน่งเหมือนกันทุกประการ
     """
 
-    def __init__(self, attn, rotary):
+    def __init__(self, attn, max_context):
         super().__init__()
         self.attn = attn
-        self.rotary = rotary
+        cache_shape = (1, 1, full.config.num_key_value_heads, max_context, head_dim)
+        self.register_buffer("keyCache", torch.zeros(cache_shape))
+        self.register_buffer("valueCache", torch.zeros(cache_shape))
+        object.__setattr__(
+            self,
+            "kv_cache",
+            SliceUpdateKeyValueCache(
+                k=self.keyCache, v=self.valueCache, max_context=max_context
+            ),
+        )
 
     def forward(self, hidden, causal_mask):
-        bsz, q_len, _ = hidden.shape
+        q_len = hidden.shape[1]
         past = causal_mask.shape[-1] - q_len
+        self.kv_cache.past_seen_tokens = past
         position_ids = torch.arange(past, past + q_len).unsqueeze(0)
 
-        q = self.attn.q_proj(hidden)
-        k = self.attn.k_proj(hidden)
-        q = q.view(bsz, q_len, self.attn.num_heads, self.attn.head_dim).transpose(1, 2)
-        k = k.view(bsz, q_len, self.attn.num_key_value_heads, self.attn.head_dim).transpose(1, 2)
+        _captured.clear()
+        self.attn(
+            hidden_states=hidden,
+            attention_mask=causal_mask,
+            position_ids=position_ids,
+            past_key_value=self.kv_cache,
+            use_cache=True,
+        )
+        return _captured["q"], _captured["k"]
 
-        cos, sin = self.rotary(k, position_ids)
-        from transformers.models.qwen2.modeling_qwen2 import apply_rotary_pos_emb
 
-        q, k = apply_rotary_pos_emb(q, k, cos, sin)
-        return q, k
-
-
-probe = RopeProbe(attn, rotary).eval()
+probe = RopeProbe(attn, MAX_CONTEXT).eval()
 
 # ── ค่าอ้างอิงจาก PyTorch ──────────────────────────────────────────────────
 # hidden ที่สุ่มมาถูกเก็บลง npz ไปด้วย ฝั่งแมคจึงป้อนก้อนเดียวกันเป๊ะ
@@ -89,6 +144,8 @@ CASES = [(1, 1), (1, 2), (2, 2), (2, 3), (3, 3)]  # (q_len, ctx_len)
 for q_len, ctx in CASES:
     hidden = torch.randn(1, q_len, hidden_size)
     mask = torch.zeros(1, 1, q_len, ctx)
+    probe.keyCache.zero_()
+    probe.valueCache.zero_()
     with torch.no_grad():
         q_out, k_out = probe(hidden, mask)
     tag = f"q{q_len}_ctx{ctx}"
@@ -108,8 +165,15 @@ print("Tracing...")
 with torch.no_grad():
     traced = torch.jit.trace(probe, (example_hidden, example_mask))
 
+for _m in (probe, traced):
+    for _n in ("keyCache", "valueCache"):
+        _buf = getattr(_m, _n, None)
+        if _buf is not None:
+            _buf.zero_()
+
 query_length = ct.RangeDim(lower_bound=1, upper_bound=PREFILL_CHUNK, default=1)
 context_length = ct.RangeDim(lower_bound=1, upper_bound=MAX_CONTEXT, default=1)
+cache_shape = (1, 1, full.config.num_key_value_heads, MAX_CONTEXT, head_dim)
 
 print("Converting...")
 mlmodel = ct.convert(
@@ -125,6 +189,16 @@ mlmodel = ct.convert(
     outputs=[
         ct.TensorType(name="q_rope", dtype=np.float16),
         ct.TensorType(name="k_rope", dtype=np.float16),
+    ],
+    states=[
+        ct.StateType(
+            wrapped_type=ct.TensorType(shape=cache_shape, dtype=np.float32),
+            name="keyCache",
+        ),
+        ct.StateType(
+            wrapped_type=ct.TensorType(shape=cache_shape, dtype=np.float32),
+            name="valueCache",
+        ),
     ],
     minimum_deployment_target=ct.target.iOS18,
     compute_precision=ct.precision.FLOAT16,
