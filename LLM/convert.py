@@ -84,7 +84,7 @@ decode ทีละ token: q = 1, ctx = past + 1, mask เป็นศูนย�
 
 ผลลัพธ์เปลี่ยนไปตาม computeUnits (all / cpuAndGPU ให้คนละคำตอบ)
     เลขล้นใน fp16 — โมเดลที่ถูกต้องต้องให้ผลเท่ากันทุก backend ตัวการคือ
-    RMSNorm ดู RMS_SCALE ข้างล่าง
+    เลขล้นตอน matmul ของ attention ดู ATTN_SCALE ข้างล่าง
 
 `ValueError: State only support fp16 dtype`
     Core ML รับ state เป็น fp16 อย่างเดียว จึงเปลี่ยนไป trace ด้วย fp32 ไม่ได้
@@ -232,16 +232,15 @@ TAG = QUANT_DTYPE or "fp16"
 OUTPUT_NAME = f"Qwen-{TAG}.mlpackage"
 OUTPUT_PATH = f"/content/{OUTPUT_NAME}"
 DRIVE_ZIP_PATH = f"/content/drive/MyDrive/{OUTPUT_NAME}.zip"
-# ตัวหารสองตัวที่ใช้กันเลขล้นใน fp16 — เหตุผลเต็มอยู่ที่ _safe_rms_forward
-# กับ _ScaledMath ข้างล่าง ประกาศตรงนี้เพราะชื่อ checkpoint ต้องอ้างถึงมัน
-RMS_SCALE = 64.0
+# ตัวหารที่ใช้กัน attention score ล้นใน fp16 — เหตุผลเต็มอยู่ที่ _ScaledMath
+# ข้างล่าง ประกาศตรงนี้เพราะชื่อ checkpoint ต้องอ้างถึงมัน
 ATTN_SCALE = 64.0
 
 # "rms64" อยู่ในชื่อเพราะกราฟผูกกับการแพตช์ RMSNorm — checkpoint ที่ trace ไว้
 # ก่อนแพตช์ใช้ต่อไม่ได้ ถ้าไม่แยกชื่อ สคริปต์จะหยิบของเก่ามา quantize เงียบ ๆ
 # แล้วได้ผลพังเหมือนเดิมโดยไม่มีอะไรเตือน
 FP16_PATH = (
-    f"/content/Qwen-fp16-rms{RMS_SCALE:.0f}-attn{ATTN_SCALE:.0f}-{'untied' if UNTIE_LM_HEAD else 'tied'}"
+    f"/content/Qwen-fp16-attn{ATTN_SCALE:.0f}-{'untied' if UNTIE_LM_HEAD else 'tied'}"
     f"-c{MAX_CONTEXT}-q{PREFILL_CHUNK}.mlpackage"
 )
 
@@ -285,7 +284,27 @@ class SliceUpdateKeyValueCache(Cache):
         return self.max_context
 
 
-# ── กัน RMSNorm ล้นใน fp16 ─────────────────────────────────────────────────
+# ── RMSNorm: เคยแพตช์แล้วแย่ลง — ปิดไว้ ────────────────────────────────────
+#
+# **อย่าเปิดใช้อีกโดยไม่อ่านย่อหน้านี้ให้จบ**
+#
+# ข้อสังเกตเดิมยังจริง: MIL ของไฟล์ที่แปลงออกมามี
+#     tensor<fp16, [1, ?, 1]> variance_1_cast_fp16 = reduce_mean(x = var_185...)
+# แปลว่า coremltools ลด `.to(torch.float32)` ที่ transformers ใส่ไว้กันค่าล้น
+# กลับเป็น fp16 จริง
+#
+# แต่การหารด้วย 64 ก่อนยกกำลังสองเพื่อกันล้น กลับไปสร้างปัญหาค่าจมแทน —
+# x^2 เล็กลง 4096 เท่า ส่วน fp16 เก็บค่าต่ำสุดได้ราว 6e-8 เวกเตอร์ที่ RMS
+# ต่ำกว่า ~0.016 จึงได้ variance เป็นศูนย์ แล้ว rsqrt(0) = inf พังแบบเดียวกับ
+# ที่พยายามจะกัน
+#
+# วัดผลได้ชัด: เคส 1 token ที่เคยตรงกับ PyTorch พังทันทีที่เปิดแพตช์นี้ ซึ่ง
+# แพตช์ attention ทำให้เกิดไม่ได้ (ที่ ctx=1 softmax ของค่าเดียวได้ 1.0 เส้นทาง
+# Q/K ไม่มีผล) ฝั่ง PyTorch มองไม่เห็นเพราะคำนวณ RMSNorm เป็น fp32 อยู่แล้ว
+# ตัวตรวจ fp16 จึงผ่านทั้งที่ของพัง
+#
+# ถ้าจะแก้จุดนี้จริง ๆ ต้องกันไม่ให้ coremltools ลด op พวกนี้เป็น fp16 ผ่าน
+# op_selector ของ FP16ComputePrecision ไม่ใช่ไปขยับสเกลของตัวเลข
 #
 # `Qwen2RMSNorm` ของ transformers เขียนไว้ว่า `.to(torch.float32)` ก่อน
 # `pow(2).mean()` เพื่อกันค่าล้นโดยเฉพาะ แต่ `compute_precision=FLOAT16` ของ
@@ -347,15 +366,6 @@ def _scale_down_queries(model):
         q_proj.weight.data /= ATTN_SCALE
         if q_proj.bias is not None:
             q_proj.bias.data /= ATTN_SCALE
-
-
-def _safe_rms_forward(self, hidden_states):
-    input_dtype = hidden_states.dtype
-    x = hidden_states.to(torch.float32) / RMS_SCALE
-    variance = x.pow(2).mean(-1, keepdim=True)
-    # epsilon ต้องหารด้วย s^2 ด้วย ผลถึงจะเท่าของเดิมทุกประการ
-    x = x * torch.rsqrt(variance + self.variance_epsilon / (RMS_SCALE**2))
-    return self.weight * x.to(input_dtype)
 
 
 class StatefulQwen(torch.nn.Module):
@@ -450,13 +460,9 @@ else:
     torch_model.eval()
 
     # ต้องแพตช์ก่อน trace — กราฟจะได้จับรูปที่กันการล้นไว้แล้ว
-    qwen2_mod.Qwen2RMSNorm.forward = _safe_rms_forward
     qwen2_mod.math = _ScaledMath()
     _scale_down_queries(torch_model)
-    print(
-        f"แพตช์แล้ว — RMSNorm หารด้วย {RMS_SCALE:.0f} ก่อนยกกำลังสอง, "
-        f"attention หารด้วย {ATTN_SCALE:.0f} ก่อน matmul"
-    )
+    print(f"แพตช์แล้ว — attention หารด้วย {ATTN_SCALE:.0f} ก่อน matmul")
 
     # ── พิสูจน์ว่าแพตช์ได้ผล ก่อนจะเสียเวลาแปลงสี่สิบนาที ──────────────────
     #
