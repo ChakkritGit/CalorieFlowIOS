@@ -157,8 +157,7 @@ if not os.path.isdir("/content/drive/MyDrive"):
     )
 
 MODEL_NAME = "Qwen/Qwen2.5-1.5B-Instruct"
-OUTPUT_PATH = "/content/Qwen.mlpackage"
-DRIVE_ZIP_PATH = "/content/drive/MyDrive/Qwen.mlpackage.zip"
+# OUTPUT_PATH กับ DRIVE_ZIP_PATH ตั้งทีหลัง หลังรู้ค่า QUANT_DTYPE แล้ว
 
 # ── งบ token ────────────────────────────────────────────────────────────────
 #
@@ -196,12 +195,33 @@ PREFILL_CHUNK = 128
 #             ใช้เมื่อทดสอบแล้วโมเดลตอบเพี้ยนจนรับไม่ได้
 EMBEDDING_POLICY = "all"
 
+# ── ความละเอียดของ quantize ────────────────────────────────────────────────
+#
+#   "int4"  — ~0.85 GB เป้าหมายที่อยากได้
+#   "int8"  — ~1.6 GB ใช้แยกว่าอาการพังมาจากความละเอียดหรือมาจากขั้นแปลง
+#   None    — ข้าม quantize ทั้งขั้น ได้ fp16 ~3 GB ใหญ่เกินจะลงเครื่องจริง
+#             แต่เป็นค่าอ้างอิงที่เชื่อได้ว่ากราฟถูกหรือผิด
+#
+# ลำดับที่ควรไล่เมื่อโมเดลตอบไม่รู้เรื่อง: int8 ก่อน ถ้า int8 ดีแปลว่าเป็นเรื่อง
+# ความละเอียดล้วน ๆ ถ้า int8 ก็พังเหมือนกันแปลว่าปัญหาอยู่ที่ขั้นแปลง ไม่ใช่ quantize
+# — กรณีหลังอย่าเสียเวลาไล่ปรับ block_size ต่อ
+QUANT_DTYPE = "int4"
+
+if QUANT_DTYPE not in ("int4", "int8", None):
+    raise SystemExit('QUANT_DTYPE ต้องเป็น "int4", "int8" หรือ None')
 if EMBEDDING_POLICY not in ("all", "untie"):
     raise SystemExit('EMBEDDING_POLICY ต้องเป็น "all" หรือ "untie" เท่านั้น')
 if PREFILL_CHUNK > MAX_CONTEXT:
     raise SystemExit("PREFILL_CHUNK ห้ามเกิน MAX_CONTEXT")
 
 UNTIE_LM_HEAD = EMBEDDING_POLICY == "untie"
+
+# ใส่ dtype ไว้ในชื่อไฟล์ผลลัพธ์ เพราะช่วงไล่หาสาเหตุจะมีหลายรุ่นปนกันใน Drive
+# แล้วแยกไม่ออกว่าอันไหนคืออันไหน
+TAG = QUANT_DTYPE or "fp16"
+OUTPUT_NAME = f"Qwen-{TAG}.mlpackage"
+OUTPUT_PATH = f"/content/{OUTPUT_NAME}"
+DRIVE_ZIP_PATH = f"/content/drive/MyDrive/{OUTPUT_NAME}.zip"
 FP16_PATH = (
     f"/content/Qwen-fp16-{'untied' if UNTIE_LM_HEAD else 'tied'}"
     f"-c{MAX_CONTEXT}-q{PREFILL_CHUNK}.mlpackage"
@@ -432,8 +452,6 @@ else:
 # op_type_configs ตั้งได้ต่อเมื่อ untie แล้วเท่านั้น — ตอนที่ยัง tie อยู่
 # const ก้อนเดียวป้อนทั้ง gather และ linear การให้คนละ config จะได้
 # ValueError: compression config conflict detected
-print("Quantizing to 4-bit...")
-
 # ── ตาราง RoPE ต้องเว้นไว้ที่ fp16 ห้าม quantize เด็ดขาด ────────────────────
 #
 # cos/sin cache เป็น const ขนาด [32768, 128] ที่ทั้ง 28 layer ใช้ร่วมกัน
@@ -465,36 +483,38 @@ def find_const_names(model, needle):
     return names
 
 
-rope_consts = find_const_names(mlmodel, "rotary_emb")
-if not rope_consts:
-    raise SystemExit(
-        "หา const ของ RoPE ไม่เจอ — ชื่ออาจเปลี่ยนไปตามรุ่น transformers\n"
-        "อย่าปล่อยผ่าน ถ้า quantize ทับตารางนี้โมเดลจะพ่นขยะโดยไม่มี error\n"
-        "ลองหาชื่อที่ใกล้เคียงด้วย find_const_names(mlmodel, 'cos') ดูก่อน"
-    )
-print(f"เว้นไม่ quantize {len(rope_consts)} ก้อน: {rope_consts}")
+if QUANT_DTYPE is None:
+    print("ข้าม quantize ทั้งขั้น — เซฟเป็น fp16 ตามที่ตั้ง QUANT_DTYPE = None")
+else:
+    rope_consts = find_const_names(mlmodel, "rotary_emb")
+    if not rope_consts:
+        raise SystemExit(
+            "หา const ของ RoPE ไม่เจอ — ชื่ออาจเปลี่ยนไปตามรุ่น transformers\n"
+            "อย่าปล่อยผ่าน ถ้า quantize ทับตารางนี้โมเดลจะพ่นขยะโดยไม่มี error\n"
+            "ลองหาชื่อที่ใกล้เคียงด้วย find_const_names(mlmodel, 'cos') ดูก่อน"
+        )
+    print(f"Quantizing to {QUANT_DTYPE}...")
+    print(f"เว้นไม่ quantize {len(rope_consts)} ก้อน: {rope_consts}")
 
-quant_config = OptimizationConfig(
-    global_config=OpLinearQuantizerConfig(
-        mode="linear_symmetric",
-        dtype="int4",
-        granularity="per_block",
-        block_size=32,
-    ),
-    # embedding lookup ปรากฏเป็น op `gather` — ตั้ง None = ไม่แตะ
-    op_type_configs={"gather": None} if UNTIE_LM_HEAD else None,
-    op_name_configs={name: None for name in rope_consts},
-)
-mlmodel = linear_quantize_weights(mlmodel, config=quant_config)
+    quant_config = OptimizationConfig(
+        global_config=OpLinearQuantizerConfig(
+            mode="linear_symmetric",
+            dtype=QUANT_DTYPE,
+            granularity="per_block",
+            block_size=32,
+        ),
+        # embedding lookup ปรากฏเป็น op `gather` — ตั้ง None = ไม่แตะ
+        op_type_configs={"gather": None} if UNTIE_LM_HEAD else None,
+        op_name_configs={name: None for name in rope_consts},
+    )
+    mlmodel = linear_quantize_weights(mlmodel, config=quant_config)
 
 print(f"Saving to {OUTPUT_PATH} ...")
 mlmodel.save(OUTPUT_PATH)
 
 print("Zipping...")
-shutil.make_archive(
-    "/content/Qwen.mlpackage", "zip", root_dir="/content", base_dir="Qwen.mlpackage"
-)
-shutil.copy("/content/Qwen.mlpackage.zip", DRIVE_ZIP_PATH)
+shutil.make_archive(OUTPUT_PATH, "zip", root_dir="/content", base_dir=OUTPUT_NAME)
+shutil.copy(f"{OUTPUT_PATH}.zip", DRIVE_ZIP_PATH)
 print(f"copied -> {DRIVE_ZIP_PATH}")
 
 # พิมพ์ signature ไว้เทียบกับฝั่ง Swift — ถ้าชื่อหรือ shape ไม่ตรง แอปจะพังตอนรัน
@@ -512,7 +532,8 @@ for o in spec.description.output:
     print(o)
 
 size_gb = sum(f.stat().st_size for f in Path(OUTPUT_PATH).rglob("*") if f.is_file()) / 1e9
-_expected = "~1.35 GB" if UNTIE_LM_HEAD else "~1.0-1.1 GB"
+_expected = {"int4": "~0.85 GB", "int8": "~1.6 GB", None: "~3.1 GB"}[QUANT_DTYPE]
+if UNTIE_LM_HEAD and QUANT_DTYPE is not None:
+    _expected += " + อีกราว 0.4 GB จาก embedding ที่เว้นไว้"
 print(f"\nFINISHED — ขนาด {size_gb:.2f} GB (คาดไว้ {_expected})")
-print("ถ้าได้ 2.9 GB แปลว่า quantize ไม่ติดเลย")
 print(f"รับได้ {MAX_CONTEXT} token รวม prompt + คำตอบ, ป้อนก้อนละไม่เกิน {PREFILL_CHUNK}")
