@@ -240,7 +240,7 @@ ATTN_SCALE = 64.0
 # ก่อนแพตช์ใช้ต่อไม่ได้ ถ้าไม่แยกชื่อ สคริปต์จะหยิบของเก่ามา quantize เงียบ ๆ
 # แล้วได้ผลพังเหมือนเดิมโดยไม่มีอะไรเตือน
 FP16_PATH = (
-    f"/content/Qwen-fp16-attn{ATTN_SCALE:.0f}-{'untied' if UNTIE_LM_HEAD else 'tied'}"
+    f"/content/Qwen-fp16-attn{ATTN_SCALE:.0f}-normfp32-{'untied' if UNTIE_LM_HEAD else 'tied'}"
     f"-c{MAX_CONTEXT}-q{PREFILL_CHUNK}.mlpackage"
 )
 
@@ -284,9 +284,9 @@ class SliceUpdateKeyValueCache(Cache):
         return self.max_context
 
 
-# ── RMSNorm: เคยแพตช์แล้วแย่ลง — ปิดไว้ ────────────────────────────────────
+# ── RMSNorm: เคยแก้ด้วยการขยับสเกลแล้วแย่ลง ────────────────────────────────
 #
-# **อย่าเปิดใช้อีกโดยไม่อ่านย่อหน้านี้ให้จบ**
+# **อย่ากลับไปใช้วิธีขยับสเกลอีก** วิธีที่ถูกอยู่ที่ _fp16_except_rmsnorm ข้างล่าง
 #
 # ข้อสังเกตเดิมยังจริง: MIL ของไฟล์ที่แปลงออกมามี
 #     tensor<fp16, [1, ?, 1]> variance_1_cast_fp16 = reduce_mean(x = var_185...)
@@ -366,6 +366,32 @@ def _scale_down_queries(model):
         q_proj.weight.data /= ATTN_SCALE
         if q_proj.bias is not None:
             q_proj.bias.data /= ATTN_SCALE
+
+
+# ── กัน RMSNorm ล้น โดยไม่ให้ coremltools ลดมันเป็น fp16 ───────────────────
+#
+# นี่คือวิธีที่ถูกของปัญหาที่เคยพยายามแก้ด้วยการขยับสเกลแล้วพัง (ดูคอมเมนต์
+# ข้างบน) — แทนที่จะไปยุ่งกับตัวเลข ก็บอกตัวแปลงตรง ๆ ว่าอย่าลด op พวกนี้
+#
+# ข้อเท็จจริงที่ชี้มาที่นี่: หลังแก้ ATTN_SCALE แล้ว **PyTorch fp16 ตอบถูก
+# แต่ Core ML fp16 จากโมเดลตัวเดียวกันยังพ่นขยะ และผลยังเปลี่ยนตาม
+# computeUnits** ความต่างที่รู้จักระหว่างสองทางนี้มีอย่างเดียวคือ transformers
+# คำนวณ variance ของ RMSNorm ด้วย fp32 (`.to(torch.float32)`) ส่วน
+# compute_precision=FLOAT16 ลดมันกลับเป็น fp16
+#
+# op สามตัวนี้ปรากฏเฉพาะใน RMSNorm ของโมเดลนี้เท่านั้น การกันไว้จึงตรงจุด
+# ไม่กระทบส่วนอื่น:
+#   pow          ยกกำลังสองของ hidden state
+#   reduce_mean  เฉลี่ยข้าม 1536 มิติ — จุดที่ล้น
+#   rsqrt        ส่วนกลับของรากที่สอง
+#
+# coremltools จะแทรก cast fp16 -> fp32 ให้เองรอบ ๆ op ที่ถูกกันไว้
+RMSNORM_OPS = ("pow", "reduce_mean", "rsqrt")
+
+
+def _fp16_except_rmsnorm(op):
+    """คืน True ถ้าให้แปลง op นั้นเป็น fp16 — คืน False คือคงไว้ที่ fp32"""
+    return op.op_type not in RMSNORM_OPS
 
 
 class StatefulQwen(torch.nn.Module):
@@ -569,7 +595,9 @@ else:
             ),
         ],
         minimum_deployment_target=ct.target.iOS18,
-        compute_precision=ct.precision.FLOAT16,
+        compute_precision=ct.transform.FP16ComputePrecision(
+            op_selector=_fp16_except_rmsnorm
+        ),
         skip_model_load=True,  # เครื่อง Colab เป็น Linux โหลดโมเดล Core ML ไม่ได้
     )
 
