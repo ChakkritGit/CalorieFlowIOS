@@ -122,6 +122,7 @@ Colab ฟรีให้ราว 12.7 GB ซึ่งเฉียดกับ�
 """
 
 import gc
+import math
 import os
 import shutil
 from pathlib import Path
@@ -231,15 +232,16 @@ TAG = QUANT_DTYPE or "fp16"
 OUTPUT_NAME = f"Qwen-{TAG}.mlpackage"
 OUTPUT_PATH = f"/content/{OUTPUT_NAME}"
 DRIVE_ZIP_PATH = f"/content/drive/MyDrive/{OUTPUT_NAME}.zip"
-# ตัวหารที่ใช้กัน RMSNorm ล้นใน fp16 — เหตุผลเต็มอยู่ที่ _safe_rms_forward
-# ประกาศตรงนี้เพราะชื่อ checkpoint ต้องอ้างถึงมัน
+# ตัวหารสองตัวที่ใช้กันเลขล้นใน fp16 — เหตุผลเต็มอยู่ที่ _safe_rms_forward
+# กับ _ScaledMath ข้างล่าง ประกาศตรงนี้เพราะชื่อ checkpoint ต้องอ้างถึงมัน
 RMS_SCALE = 64.0
+ATTN_SCALE = 64.0
 
 # "rms64" อยู่ในชื่อเพราะกราฟผูกกับการแพตช์ RMSNorm — checkpoint ที่ trace ไว้
 # ก่อนแพตช์ใช้ต่อไม่ได้ ถ้าไม่แยกชื่อ สคริปต์จะหยิบของเก่ามา quantize เงียบ ๆ
 # แล้วได้ผลพังเหมือนเดิมโดยไม่มีอะไรเตือน
 FP16_PATH = (
-    f"/content/Qwen-fp16-rms{RMS_SCALE:.0f}-{'untied' if UNTIE_LM_HEAD else 'tied'}"
+    f"/content/Qwen-fp16-rms{RMS_SCALE:.0f}-attn{ATTN_SCALE:.0f}-{'untied' if UNTIE_LM_HEAD else 'tied'}"
     f"-c{MAX_CONTEXT}-q{PREFILL_CHUNK}.mlpackage"
 )
 
@@ -308,6 +310,45 @@ class SliceUpdateKeyValueCache(Cache):
 #
 # แก้ที่ตัวโมเดลแทนที่จะไปยุ่งกับ op_selector ของ coremltools เพราะได้ผลแน่นอน
 # กว่าและไม่ผูกกับรายละเอียดภายในของเครื่องมือแปลง
+# ── กัน attention score ล้นใน fp16 ─────────────────────────────────────────
+#
+# transformers คำนวณ `matmul(q, k^T) / sqrt(head_dim)` โดยหาร **หลัง** matmul
+# ตัว matmul จึงต้องเก็บผลรวมดิบ 128 มิติไว้ก่อน วัดจากโมเดลจริงแล้ว |k| สูงถึง
+# 317 และ |q| ราว 35 ผลรวมจึงขึ้นถึงหลักล้าน ทะลุเพดาน fp16 (65504) กลายเป็น inf
+#
+# อาการที่ตรงกันทุกข้อ:
+#   ctx = 1  -> ถูกเสมอ เพราะ softmax ของค่าเดียวได้ 1.0 ไม่ว่าค่านั้นจะเป็น inf
+#   ctx >= 2 -> softmax(inf, inf) ให้ NaN หรือขยะ
+#   ผลต่างกันตาม computeUnits เพราะแต่ละ backend จัดการ inf คนละแบบ
+#
+# วิธีแก้ — ย้ายการหารไปไว้ *ก่อน* matmul ผลลัพธ์เท่าเดิมทุกประการเพราะ
+# (q/A)·k / (sqrt(d)/A) = q·k / sqrt(d) แต่ค่าที่สะสมระหว่างทางเล็กลง A เท่า
+#
+# ทำโดยไม่แตะ forward ของ transformers เลย — ย่อน้ำหนัก q_proj ลง A แล้วสวม
+# shim ให้ `math.sqrt` ในโมดูลนั้นคืนค่าที่เล็กลง A เท่าตาม การเขียน forward
+# ใหม่ทั้งก้อนจะผูกกับรายละเอียดภายในของ transformers รุ่นนั้น ๆ ซึ่งเปราะกว่ามาก
+#
+# ค่า ATTN_SCALE ประกาศไว้ข้างบนแล้ว เพราะชื่อ checkpoint ต้องอ้างถึงมัน
+
+
+class _ScaledMath:
+    """ส่งต่อทุกอย่างให้ math ยกเว้น sqrt ที่คืนค่าเล็กลง ATTN_SCALE เท่า"""
+
+    def __getattr__(self, name):
+        return getattr(math, name)
+
+    def sqrt(self, x):
+        return math.sqrt(x) / ATTN_SCALE
+
+
+def _scale_down_queries(model):
+    for layer in model.model.layers:
+        q_proj = layer.self_attn.q_proj
+        q_proj.weight.data /= ATTN_SCALE
+        if q_proj.bias is not None:
+            q_proj.bias.data /= ATTN_SCALE
+
+
 def _safe_rms_forward(self, hidden_states):
     input_dtype = hidden_states.dtype
     x = hidden_states.to(torch.float32) / RMS_SCALE
@@ -410,7 +451,12 @@ else:
 
     # ต้องแพตช์ก่อน trace — กราฟจะได้จับรูปที่กันการล้นไว้แล้ว
     qwen2_mod.Qwen2RMSNorm.forward = _safe_rms_forward
-    print(f"แพตช์ Qwen2RMSNorm ให้หารด้วย {RMS_SCALE:.0f} ก่อนยกกำลังสองแล้ว")
+    qwen2_mod.math = _ScaledMath()
+    _scale_down_queries(torch_model)
+    print(
+        f"แพตช์แล้ว — RMSNorm หารด้วย {RMS_SCALE:.0f} ก่อนยกกำลังสอง, "
+        f"attention หารด้วย {ATTN_SCALE:.0f} ก่อน matmul"
+    )
 
     # ── พิสูจน์ว่าแพตช์ได้ผล ก่อนจะเสียเวลาแปลงสี่สิบนาที ──────────────────
     #
@@ -425,7 +471,8 @@ else:
         ).logits[0, -1]
     if torch.isnan(_check).any() or torch.isinf(_check).any():
         raise SystemExit(
-            "fp16 forward ยังได้ NaN/Inf หลังแพตช์ RMSNorm — ยังมีจุดล้นที่อื่นอีก"
+            "fp16 forward ยังได้ NaN/Inf หลังแพตช์ — ยังมีจุดล้นที่อื่นอีก\n"
+            "ลองเพิ่ม ATTN_SCALE เป็น 256 ดูก่อน"
         )
     _top = int(_check.argmax())
     print(f"fp16 forward ผ่าน — token อันดับหนึ่งคือ id {_top} (ต้องเป็น 12095 = ' Paris')")
