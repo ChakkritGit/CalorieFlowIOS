@@ -1,0 +1,191 @@
+import SwiftUI
+
+/// หน้าจัดการโมเดล AI ในเครื่อง
+///
+/// ทั้งหน้ามีปุ่มเดียวที่เริ่มดาวน์โหลดได้ และเขียนขนาดไว้บนปุ่มเลย — กว่าหนึ่ง
+/// กิกะไบต์ต้องเป็นการตัดสินใจที่ผู้ใช้เห็นตัวเลขก่อนกด ไม่ใช่รู้ทีหลังตอนเน็ตหมด
+struct ModelDownloadView: View {
+    @Environment(\.l10n) private var t
+
+    @State private var downloader = ModelDownloader.shared
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                header
+                statusCard
+                footnote
+            }
+            .padding(20)
+        }
+        .background(Palette.background)
+        .navigationTitle(t.modelTitle)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    // MARK: - Sections
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 28))
+                .foregroundStyle(Palette.green)
+
+            Text(t.modelTitle)
+                .font(.headline)
+                .foregroundStyle(Palette.ink)
+
+            Text(t.modelIntro)
+                .font(.subheadline)
+                .foregroundStyle(Palette.inkSoft)
+        }
+        .cardStyle()
+    }
+
+    private var statusCard: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(statusColor)
+                    .frame(width: 10, height: 10)
+                Text(statusTitle)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Palette.ink)
+            }
+
+            switch downloader.phase {
+            case .notInstalled:
+                sizeRows
+                startButton
+
+            case let .downloading(progress):
+                downloading(progress)
+
+            case .compiling:
+                HStack(spacing: 10) {
+                    ProgressView().controlSize(.small)
+                    Text(t.modelCompilingNote)
+                        .font(.caption)
+                        .foregroundStyle(Palette.inkSoft)
+                }
+
+            case .ready:
+                Text(t.modelFallbackNote)
+                    .font(.caption)
+                    .foregroundStyle(Palette.inkFaint)
+                deleteButton
+
+            case let .failed(failure):
+                Text(failure.message(t))
+                    .font(.caption)
+                    .foregroundStyle(Palette.red)
+                HStack(spacing: 12) {
+                    action(t.modelRetryButton, tint: Palette.green) { downloader.retry() }
+                    action(t.modelDeleteButton, tint: Palette.track, ink: Palette.ink) {
+                        downloader.deleteModel()
+                    }
+                }
+            }
+        }
+        .cardStyle()
+    }
+
+    private var sizeRows: some View {
+        VStack(spacing: 8) {
+            row(t.modelDownloadSizeLabel, ModelDownloader.formatted(ModelDownloader.downloadBytes))
+            row(t.modelDiskNeededLabel, ModelDownloader.formatted(ModelDownloader.requiredDiskBytes))
+        }
+    }
+
+    private func downloading(_ progress: ModelDownloader.Progress) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ProgressView(value: progress.fraction)
+                .tint(Palette.green)
+
+            HStack {
+                Text(t.modelStepLabel(progress.fileIndex, progress.fileCount))
+                Spacer()
+                Text("\(ModelDownloader.formatted(progress.received)) / \(ModelDownloader.formatted(progress.expected))")
+            }
+            .font(.caption)
+            .foregroundStyle(Palette.inkSoft)
+            .monospacedDigit()
+
+            action(t.modelCancelButton, tint: Palette.track, ink: Palette.ink) {
+                downloader.cancel()
+            }
+        }
+    }
+
+    private var startButton: some View {
+        action(
+            t.modelStartButton(ModelDownloader.formatted(ModelDownloader.downloadBytes)),
+            tint: Palette.green
+        ) {
+            downloader.start()
+        }
+    }
+
+    private var deleteButton: some View {
+        action(t.modelDeleteButton, tint: Palette.track, ink: Palette.red) {
+            downloader.deleteModel()
+        }
+    }
+
+    private var footnote: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label(t.modelWifiNote, systemImage: "wifi")
+            Label(t.modelFallbackNote, systemImage: "info.circle")
+        }
+        .font(.caption2)
+        .foregroundStyle(Palette.inkFaint)
+        .padding(.horizontal, 4)
+    }
+
+    // MARK: - Bits
+
+    private func row(_ title: String, _ value: String) -> some View {
+        HStack {
+            Text(title).foregroundStyle(Palette.inkSoft)
+            Spacer()
+            Text(value).foregroundStyle(Palette.ink).monospacedDigit()
+        }
+        .font(.subheadline)
+    }
+
+    private func action(
+        _ title: String,
+        tint: Color,
+        ink: Color = .white,
+        perform: @escaping () -> Void
+    ) -> some View {
+        Button(action: perform) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(ink)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(tint, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var statusTitle: String {
+        switch downloader.phase {
+        case .notInstalled: return t.modelStateNotInstalled
+        case .downloading: return t.modelStateDownloading
+        case .compiling: return t.modelStateCompiling
+        case .ready: return t.modelStateReady
+        case .failed: return t.modelStateFailed
+        }
+    }
+
+    private var statusColor: Color {
+        switch downloader.phase {
+        case .notInstalled: return Palette.inkFaint
+        case .downloading, .compiling: return Palette.blue
+        case .ready: return Palette.green
+        case .failed: return Palette.red
+        }
+    }
+}

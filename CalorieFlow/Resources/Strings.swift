@@ -235,7 +235,6 @@ struct L10n {
     var settingsModelSubtitle: String {
         s("ดาวน์โหลดโมเดลสำหรับใช้งานแบบออฟไลน์", "Download the model for offline use")
     }
-    var settingsModelComingSoon: String { s("เร็ว ๆ นี้", "Coming soon") }
 
     var dataManagement: String { s("จัดการข้อมูล (Data)", "Data management") }
     var exportButton: String { s("ส่งออก (.wgd)", "Export (.wgd)") }

@@ -46,17 +46,16 @@ struct SettingsView: View {
                         )
                     }
 
-                    // TODO: ต่อเข้ากับ `ModelDownloadView()` เมื่อไฟล์นั้นถูกเพิ่มเข้า target
-                    // ยังไม่ทำเป็น NavigationLink เพราะปลายทางยังไม่มีจริง กดแล้วจะเข้าหน้าว่าง
-                    SettingsRow(
-                        icon: "arrow.down.circle.fill",
-                        tint: Palette.orange,
-                        title: t.settingsModelTitle,
-                        subtitle: t.settingsModelSubtitle,
-                        badge: t.settingsModelComingSoon,
-                        showsChevron: false
-                    )
-                    .opacity(0.6)
+                    NavigationLink {
+                        ModelDownloadView()
+                    } label: {
+                        SettingsRow(
+                            icon: "arrow.down.circle.fill",
+                            tint: Palette.orange,
+                            title: t.settingsModelTitle,
+                            subtitle: t.settingsModelSubtitle
+                        )
+                    }
 
                     NavigationLink {
                         DataSettingsView()
@@ -83,8 +82,6 @@ private struct SettingsRow: View {
     let tint: Color
     let title: String
     var subtitle: String
-    var badge: String?
-    var showsChevron: Bool = true
 
     var body: some View {
         HStack(spacing: 16) {
@@ -105,17 +102,9 @@ private struct SettingsRow: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            if let badge {
-                Text(badge)
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(Palette.inkFaint)
-            }
-
-            if showsChevron {
-                Image(systemName: "chevron.right")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(Palette.inkFaint)
-            }
+            Image(systemName: "chevron.right")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(Palette.inkFaint)
         }
         .cardStyle(padding: 16)
         .contentShape(Rectangle())

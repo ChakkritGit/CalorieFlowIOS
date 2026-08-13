@@ -1,8 +1,27 @@
 import SwiftUI
 import UIKit
 
+/// รับ event ที่มีแต่ `UIApplicationDelegate` เท่านั้นที่รับได้
+///
+/// SwiftUI ล้วน ๆ ไม่มีทางรับ `handleEventsForBackgroundURLSession` ได้ ซึ่งเป็น
+/// จุดที่ระบบใช้ปลุกแอปกลับมาตอนดาวน์โหลดโมเดลที่ค้างไว้เสร็จ (ไฟล์ 1.6 GB
+/// ผู้ใช้สลับไปทำอย่างอื่นระหว่างรอแน่นอน)
+final class AppDelegate: NSObject, UIApplicationDelegate {
+    func application(
+        _ application: UIApplication,
+        handleEventsForBackgroundURLSession identifier: String,
+        completionHandler: @escaping () -> Void
+    ) {
+        // เก็บไว้ให้ `DownloadCoordinator` เรียกคืนหลังจัดการ event ครบ
+        // เรียกทันทีตรงนี้ไม่ได้ เพราะ session ยังส่ง event ที่ค้างไม่หมด
+        ModelDownloader.backgroundEventsHandler = completionHandler
+    }
+}
+
 @main
 struct CalorieFlowApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+
     @State private var store = AppStore()
     @State private var preferences = Preferences()
     @State private var coach = AICoach()

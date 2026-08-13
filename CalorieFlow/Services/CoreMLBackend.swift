@@ -282,8 +282,8 @@ actor CoreMLBackend {
 /// ผ่านมือถือและ GitHub ปฏิเสธไฟล์เกิน 100 MB ตั้งแต่แรก แอปจึงต้องโหลดมาเอง
 /// แล้ววางไว้ใน Application Support ซึ่งไม่ถูกระบบล้างทิ้งเหมือน Caches
 ///
-/// - Note: ตัวดาวน์โหลดยังไม่ได้ทำ ตอนนี้ `compiledModelURL` จะคืน nil จนกว่าจะมี
-///   ไฟล์อยู่จริง ทำให้ `AICoach` ถอยไปใช้ `RuleBasedAdvisor` โดยไม่พัง
+/// ตัวโหลดไฟล์คือ `ModelDownloader` ซึ่งผู้ใช้ต้องกดสั่งเอง ระหว่างที่ยังไม่มีไฟล์
+/// `compiledModelURL` คืน nil ทำให้ `AICoach` ถอยไปใช้ `RuleBasedAdvisor` โดยไม่พัง
 enum ModelStore {
     static var directory: URL? {
         try? FileManager.default.url(
@@ -304,8 +304,36 @@ enum ModelStore {
     /// โฟลเดอร์ที่มี `tokenizer.json` กับ `tokenizer_config.json`
     static var tokenizerFolderURL: URL? {
         guard let url = directory,
-              FileManager.default.fileExists(atPath: url.appendingPathComponent("tokenizer.json").path)
+              FileManager.default.fileExists(atPath: url.appendingPathComponent("tokenizer.json").path),
+              FileManager.default.fileExists(atPath: url.appendingPathComponent("tokenizer_config.json").path)
         else { return nil }
         return url
+    }
+
+    /// ติดตั้งครบทั้งชุดแล้วหรือยัง
+    ///
+    /// ต้องครบทั้งโมเดลและ tokenizer — มีอย่างใดอย่างหนึ่งใช้ไม่ได้ และเป็นสภาพ
+    /// ที่เกิดได้จริงเมื่อการดาวน์โหลดล้มกลางทาง
+    static var isInstalled: Bool {
+        compiledModelURL != nil && tokenizerFolderURL != nil
+    }
+
+    /// พื้นที่ว่างที่ระบบยอมให้ใช้กับข้อมูลที่ผู้ใช้ต้องการจริง ๆ
+    ///
+    /// ใช้ `volumeAvailableCapacityForImportantUsage` ไม่ใช่ค่าว่างดิบ เพราะ iOS
+    /// นับรวมพื้นที่ที่ล้าง cache แล้วจะได้คืนมาด้วย — เป็นตัวเลขที่ตรงกับความจริง
+    /// มากกว่าเมื่อจะเขียนไฟล์ก้อนใหญ่
+    static func availableBytes() -> Int64? {
+        guard let url = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            return nil
+        }
+        let values = try? url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+        return values?.volumeAvailableCapacityForImportantUsage
+    }
+
+    /// ลบทั้งโฟลเดอร์ รวมของกลางที่ค้างจากรอบที่ล้ม — คืนพื้นที่หลายกิกะไบต์
+    static func removeAll() {
+        guard let directory else { return }
+        try? FileManager.default.removeItem(at: directory)
     }
 }
