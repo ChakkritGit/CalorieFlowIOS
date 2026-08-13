@@ -82,6 +82,10 @@ decode ทีละ token: q = 1, ctx = past + 1, mask เป็นศูนย�
     ไม่ใช่ตัว weight ของ layer
     — แก้ข้อนี้แล้วยังพ่นขยะอยู่ ยังหาสาเหตุที่สองไม่เจอ ดู debug_rope.py
 
+ผลลัพธ์เปลี่ยนไปตาม computeUnits (all / cpuAndGPU ให้คนละคำตอบ)
+    เลขล้นใน fp16 — โมเดลที่ถูกต้องต้องให้ผลเท่ากันทุก backend ตัวการคือ
+    RMSNorm ดู RMS_SCALE ข้างล่าง
+
 `ValueError: State only support fp16 dtype`
     Core ML รับ state เป็น fp16 อย่างเดียว จึงเปลี่ยนไป trace ด้วย fp32 ไม่ได้
     ทั้งที่ fp16 บน CPU ให้ NaN — แต่ไม่ใช่ปัญหาจริง เพราะไฟล์ที่แปลงออกมา
@@ -130,6 +134,7 @@ from coremltools.optimize.coreml import (
     OptimizationConfig,
     linear_quantize_weights,
 )
+import transformers.models.qwen2.modeling_qwen2 as qwen2_mod
 from transformers import AutoModelForCausalLM
 from transformers.cache_utils import Cache
 
@@ -271,6 +276,43 @@ class SliceUpdateKeyValueCache(Cache):
         return self.max_context
 
 
+# ── กัน RMSNorm ล้นใน fp16 ─────────────────────────────────────────────────
+#
+# `Qwen2RMSNorm` ของ transformers เขียนไว้ว่า `.to(torch.float32)` ก่อน
+# `pow(2).mean()` เพื่อกันค่าล้นโดยเฉพาะ แต่ `compute_precision=FLOAT16` ของ
+# coremltools ไล่แปลงทั้งกราฟกลับเป็น fp16 การป้องกันนั้นจึงถูกลบทิ้ง
+# ยืนยันได้จาก MIL ของไฟล์ที่แปลงออกมา:
+#
+#     tensor<fp16, [1, ?, 1]> variance_1_cast_fp16 = reduce_mean(x = var_185...)
+#
+# hidden state ของ Qwen2 มีค่าหลัก 100-1000 ได้ตามปกติ ยกกำลังสองแล้วเกินเพดาน
+# fp16 (65504) กลายเป็น inf -> rsqrt(inf) = 0 -> ทั้งเวกเตอร์กลายเป็นศูนย์
+#
+# อาการที่เห็น: **ผลลัพธ์เปลี่ยนตาม computeUnits** (ANE ตัดยอดที่ 65504 ส่วน GPU
+# ให้ inf จริง คนละคำตอบกัน) ซึ่งเป็นไปไม่ได้ถ้าเลขไม่ล้น
+#
+# วิธีแก้ — หารด้วยค่าคงที่ก่อนยกกำลังสอง แล้วผลลัพธ์ยังเท่าเดิมเป๊ะ:
+#
+#     y = x / s  ->  mean(y^2) = mean(x^2) / s^2  ->  rms(y) = rms(x) / s
+#     y / rms(y) = (x/s) / (rms(x)/s) = x / rms(x)
+#
+# s เป็นกำลังของสองจึงหารได้โดยไม่มีการปัดเศษเลย ที่ 64 รับ hidden ได้ถึง
+# 16384 ก่อนจะล้น เทียบกับ 256 ของเดิม
+#
+# แก้ที่ตัวโมเดลแทนที่จะไปยุ่งกับ op_selector ของ coremltools เพราะได้ผลแน่นอน
+# กว่าและไม่ผูกกับรายละเอียดภายในของเครื่องมือแปลง
+RMS_SCALE = 64.0
+
+
+def _safe_rms_forward(self, hidden_states):
+    input_dtype = hidden_states.dtype
+    x = hidden_states.to(torch.float32) / RMS_SCALE
+    variance = x.pow(2).mean(-1, keepdim=True)
+    # epsilon ต้องหารด้วย s^2 ด้วย ผลถึงจะเท่าของเดิมทุกประการ
+    x = x * torch.rsqrt(variance + self.variance_epsilon / (RMS_SCALE**2))
+    return self.weight * x.to(input_dtype)
+
+
 class StatefulQwen(torch.nn.Module):
     """ห่อ Qwen ให้รับ causal mask ตรงๆ และอัปเดต cache เอง
 
@@ -361,6 +403,31 @@ else:
         attn_implementation="eager",
     )
     torch_model.eval()
+
+    # ต้องแพตช์ก่อน trace — กราฟจะได้จับรูปที่กันการล้นไว้แล้ว
+    qwen2_mod.Qwen2RMSNorm.forward = _safe_rms_forward
+    print(f"แพตช์ Qwen2RMSNorm ให้หารด้วย {RMS_SCALE:.0f} ก่อนยกกำลังสองแล้ว")
+
+    # ── พิสูจน์ว่าแพตช์ได้ผล ก่อนจะเสียเวลาแปลงสี่สิบนาที ──────────────────
+    #
+    # โมเดลนี้รัน fp16 บน CPU แล้วเคยได้ NaN ล้วน (ดู verify_wrapper.py) ซึ่งเป็น
+    # อาการของค่าล้นแบบเดียวกัน ถ้าต้นเหตุคือ RMSNorm จริง การแพตช์ต้องทำให้
+    # fp16 กลับมาทำงานได้ด้วย — และต้องตอบ ' Paris' (id 12095) ให้ถูก
+    #
+    # ถ้าตรงนี้ยังพัง อย่าแปลงต่อ ไปหาจุดล้นจุดอื่นก่อน
+    with torch.no_grad():
+        _check = torch_model(
+            input_ids=torch.tensor([[785, 6722, 315, 9625, 374]])  # "The capital of France is"
+        ).logits[0, -1]
+    if torch.isnan(_check).any() or torch.isinf(_check).any():
+        raise SystemExit(
+            "fp16 forward ยังได้ NaN/Inf หลังแพตช์ RMSNorm — ยังมีจุดล้นที่อื่นอีก"
+        )
+    _top = int(_check.argmax())
+    print(f"fp16 forward ผ่าน — token อันดับหนึ่งคือ id {_top} (ต้องเป็น 12095 = ' Paris')")
+    if _top != 12095:
+        raise SystemExit("ตอบผิดตั้งแต่ใน PyTorch fp16 — อย่าแปลงต่อ")
+    del _check
 
     if UNTIE_LM_HEAD:
         # clone ให้ lm_head มี storage ของตัวเอง const ในกราฟจะแยกเป็นสองก้อน
