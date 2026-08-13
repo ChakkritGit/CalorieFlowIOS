@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  หน้าจอเปิดแอป
+
+  ต้องเป็น storyboard เพราะ Xcode รองรับ build setting ของ launch screen แค่สองตัว
+  คือ UILaunchScreen_Generation (หน้าเปล่า) กับ UILaunchStoryboardName — จะตั้งสี
+  พื้นหลังหรือรูปผ่าน INFOPLIST_KEY_ ไม่ได้ เพราะคีย์พวกนั้นอยู่ใน dict ซ้อน
+  ซึ่งกลไก INFOPLIST_KEY_ แปลงให้ไม่ได้
+
+  สีพื้นหลังใช้ LaunchBackground ซึ่งเป็นสีเดียวกับ Palette.background ทั้งธีมสว่าง
+  และมืด เพื่อไม่ให้กระพริบตอนสลับเข้าหน้าจริง ส่วนโลโก้เป็นสีเขียวไม่ใช่สีขาว
+  ด้วยเหตุผลเดียวกัน
+-->
+<document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB" version="3.0" toolsVersion="22685" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" launchScreen="YES" useTraitCollections="YES" useSafeAreas="YES" colorMatched="YES" initialViewController="01J-lp-oVM">
+    <device id="retina6_12" orientation="portrait" appearance="light"/>
+    <dependencies>
+        <deployment identifier="iOS"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="22684"/>
+        <capability name="Safe area layout guides" minToolsVersion="9.0"/>
+        <capability name="System colors in document resources" minToolsVersion="11.0"/>
+        <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
+    </dependencies>
+    <scenes>
+        <scene sceneID="EHf-IW-A2E">
+            <objects>
+                <viewController id="01J-lp-oVM" sceneMemberID="viewController">
+                    <view key="view" contentMode="scaleToFill" id="Ze5-6b-2t3">
+                        <rect key="frame" x="0.0" y="0.0" width="393" height="852"/>
+                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                        <subviews>
+                            <imageView clipsSubviews="YES" userInteractionEnabled="NO" contentMode="scaleAspectFit" horizontalHuggingPriority="251" verticalHuggingPriority="251" image="LaunchLogo" translatesAutoresizingMaskIntoConstraints="NO" id="LGo-8v-9Ck">
+                                <rect key="frame" x="116.5" y="346" width="160" height="160"/>
+                                <constraints>
+                                    <constraint firstAttribute="width" constant="160" id="Wd2-4q-Zzj"/>
+                                    <constraint firstAttribute="height" constant="160" id="Yr8-2m-Kf1"/>
+                                </constraints>
+                            </imageView>
+                        </subviews>
+                        <viewLayoutGuide key="safeArea" id="6Tk-OE-BBY"/>
+                        <color key="backgroundColor" name="LaunchBackground"/>
+                        <constraints>
+                            <constraint firstItem="LGo-8v-9Ck" firstAttribute="centerX" secondItem="Ze5-6b-2t3" secondAttribute="centerX" id="Jm4-5x-Qc7"/>
+                            <constraint firstItem="LGo-8v-9Ck" firstAttribute="centerY" secondItem="Ze5-6b-2t3" secondAttribute="centerY" id="Nz9-7d-Wp2"/>
+                        </constraints>
+                    </view>
+                </viewController>
+                <placeholder placeholderIdentifier="IBFirstResponder" id="iYj-Kq-Ea1" userLabel="First Responder" sceneMemberID="firstResponder"/>
+            </objects>
+            <point key="canvasLocation" x="53" y="375"/>
+        </scene>
+    </scenes>
+    <resources>
+        <image name="LaunchLogo" width="512" height="512"/>
+        <namedColor name="LaunchBackground">
+            <color red="0.97254901960784312" green="0.98039215686274506" blue="0.98823529411764705" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+        </namedColor>
+    </resources>
+</document>

@@ -77,6 +77,20 @@ struct AddFoodView: View {
             }
             .cardStyle()
         }
+        // ช่องแคลอรี่เป็น numberPad ซึ่งไม่มีปุ่ม return ให้กดปิด และ sheet ก็ไม่ได้
+        // รับ `.ignoresSafeArea(.keyboard)` ของ RootView มาด้วย (คนละ hierarchy)
+        // จึงต้องมีทางปิดคีย์บอร์ดของตัวเองครบทั้งสามทาง
+        .scrollDismissesKeyboard(.interactively)
+        // ใช้ simultaneousGesture เพื่อไม่ไปแย่ง gesture ของ ScrollView และปุ่มข้างใน
+        .simultaneousGesture(TapGesture().onEnded { focus = nil })
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button(t.doneEditing) { focus = nil }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Palette.greenDeep)
+            }
+        }
         .onAppear { focus = .name }
     }
 

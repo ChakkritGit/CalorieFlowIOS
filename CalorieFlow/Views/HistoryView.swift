@@ -78,7 +78,17 @@ struct CalendarGrid: View {
 
     @Environment(\.l10n) private var t
 
-    private let calendar = Calendar(identifier: .gregorian)
+    /// `t.weekdaySymbols` เริ่มที่อาทิตย์ตายตัวทั้งสองภาษา จึงต้องล็อก `firstWeekday`
+    /// ให้ตรงกัน ไม่งั้นเครื่องที่ locale ขึ้นต้นสัปดาห์วันจันทร์จะได้ช่องว่างเพี้ยนไปหนึ่งวัน
+    private let calendar: Calendar = {
+        var c = Calendar(identifier: .gregorian)
+        c.firstWeekday = 1
+        return c
+    }()
+
+    /// ความสูงขั้นต่ำของช่องวัน — `aspectRatio(1)` ล้วน ๆ ให้ช่องราว 41pt บนเครื่องเล็ก
+    /// ซึ่งต่ำกว่าเป้าแตะ 44pt และทำให้จุดบอกข้อมูลไปชนกับตัวเลข
+    private let cellHeight: CGFloat = 44
 
     private var year: Int { calendar.component(.year, from: month) }
     private var monthIndex: Int { calendar.component(.month, from: month) }
@@ -90,8 +100,25 @@ struct CalendarGrid: View {
             let range = calendar.range(of: .day, in: .month, for: first)
         else { return [] }
 
-        let leading = calendar.component(.weekday, from: first) - 1
+        let leading = (calendar.component(.weekday, from: first) - calendar.firstWeekday + 7) % 7
         return Array(repeating: nil, count: leading) + range.map { Optional($0) }
+    }
+
+    /// ย้ายวันที่เลือกตามเดือนที่กำลังดู เพราะหัวข้อกับการ์ดสรุปข้างล่างอ้างอิง
+    /// `selectedDate` ตัวเดียวกัน ถ้าปล่อยไว้จะกลายเป็นโชว์วันของเดือนที่มองไม่เห็นในกริด
+    private func syncSelection(to newMonth: Date) {
+        let y = calendar.component(.year, from: newMonth)
+        let m = calendar.component(.month, from: newMonth)
+
+        guard
+            let first = calendar.date(from: DateComponents(year: y, month: m, day: 1)),
+            let range = calendar.range(of: .day, in: .month, for: first)
+        else { return }
+
+        // คงวันที่เดิมไว้ถ้าเดือนใหม่มีวันนั้น (31 -> 30/28 ให้หล่นมาวันสุดท้าย)
+        let currentDay = Int(selectedDate.suffix(2)) ?? 1
+        let day = min(currentDay, range.count)
+        selectedDate = String(format: "%04d-%02d-%02d", y, m, day)
     }
 
     var body: some View {
@@ -118,7 +145,7 @@ struct CalendarGrid: View {
                     if let day {
                         dayCell(day)
                     } else {
-                        Color.clear.aspectRatio(1, contentMode: .fit)
+                        Color.clear.frame(height: cellHeight)
                     }
                 }
             }
@@ -130,6 +157,7 @@ struct CalendarGrid: View {
         Button {
             if let next = calendar.date(byAdding: .month, value: delta, to: month) {
                 month = next
+                syncSelection(to: next)
             }
         } label: {
             Image(systemName: icon).foregroundStyle(Palette.inkSoft).padding(8)
@@ -141,24 +169,32 @@ struct CalendarGrid: View {
         let key = String(format: "%04d-%02d-%02d", year, monthIndex, day)
         let isSelected = key == selectedDate
         let isMarked = markedDates.contains(key)
+        let isToday = key == DateKey.today
 
         return Button {
             selectedDate = key
         } label: {
             ZStack {
-                if isSelected { Circle().fill(Palette.green) }
+                if isSelected {
+                    Circle().fill(Palette.green)
+                } else if isToday {
+                    // วันนี้ใช้เส้นขอบจาง ๆ ให้ต่างจากวงทึบของวันที่เลือก
+                    // เพราะสองสถานะนี้เกิดพร้อมกันได้ ต้องอ่านออกว่าอันไหนคืออันไหน
+                    Circle().strokeBorder(Palette.green.opacity(0.45), lineWidth: 1.5)
+                }
                 Text("\(day)")
-                    .font(.system(size: 14, weight: isSelected ? .bold : .regular))
+                    .font(.system(size: 14, weight: isSelected || isToday ? .bold : .regular))
                     .foregroundStyle(isSelected ? Palette.card : Palette.inkSoft)
                 if isMarked && !isSelected {
                     Circle()
                         .fill(Palette.green)
                         .frame(width: 4, height: 4)
-                        .offset(y: 12)
+                        // 14 พอดีขอบล่างของตัวเลข ยังอยู่ในวงขอบของวันนี้และไม่ทับกัน
+                        .offset(y: 14)
                 }
             }
-            .frame(maxWidth: .infinity)
-            .aspectRatio(1, contentMode: .fit)
+            .frame(maxWidth: .infinity, minHeight: cellHeight)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }

@@ -207,6 +207,36 @@ struct L10n {
     var themeLabel: String { s("ธีม", "Theme") }
     var languageLabel: String { s("ภาษา", "Language") }
 
+    /// `.system` ไม่มีชื่อในภาษาของตัวเอง จึงต้องแปลตามภาษาที่กำลังแสดงอยู่
+    func languageOptionLabel(_ language: AppLanguage) -> String {
+        language.nativeName ?? s("ตามระบบ", "System")
+    }
+
+    var languageRestartNote: String {
+        s("บางส่วนของแอป เช่น รูปแบบวันที่และเมนูของระบบ จะเปลี่ยนครบหลังเปิดแอปใหม่",
+          "Some parts — date formats and system menus — only update fully after you restart the app")
+    }
+
+    // MARK: - Settings categories
+
+    var settingsProfileSubtitle: String {
+        s("ชื่อ เพศ ส่วนสูง อายุ และน้ำหนักล่าสุด", "Name, gender, height, age and latest weight")
+    }
+    var settingsGoalsSubtitle: String {
+        s("เป้าหมาย แคลอรี่ และการดื่มน้ำ", "Goal, calories and water target")
+    }
+    var settingsAppearanceSubtitle: String {
+        s("ธีม ภาษา และคำแนะนำจาก AI", "Theme, language and AI suggestions")
+    }
+    var settingsDataSubtitle: String {
+        s("สำรองและกู้คืนข้อมูล", "Back up and restore your data")
+    }
+    var settingsModelTitle: String { s("โมเดล AI", "AI model") }
+    var settingsModelSubtitle: String {
+        s("ดาวน์โหลดโมเดลสำหรับใช้งานแบบออฟไลน์", "Download the model for offline use")
+    }
+    var settingsModelComingSoon: String { s("เร็ว ๆ นี้", "Coming soon") }
+
     var dataManagement: String { s("จัดการข้อมูล (Data)", "Data management") }
     var exportButton: String { s("ส่งออก (.wgd)", "Export (.wgd)") }
     var importButton: String { s("นำเข้า (.wgd)", "Import (.wgd)") }

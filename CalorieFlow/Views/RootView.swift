@@ -59,6 +59,10 @@ private struct TabBar: View {
 
     @Environment(\.l10n) private var t
 
+    /// ความสูงเท่ากับปุ่ม + ตรงกลาง (52 + ระยะล่าง 4) แถบจึงไม่สูงขึ้นจากเดิม
+    /// แต่ได้พื้นที่แตะเต็มคอลัมน์ เกิน 44pt ตามที่ HIG กำหนด
+    private let itemHeight: CGFloat = 56
+
     var body: some View {
         HStack(spacing: 0) {
             item(.dashboard, icon: "fork.knife", label: t.tabHome)
@@ -88,7 +92,10 @@ private struct TabBar: View {
                 Text(label).font(.caption2.weight(.medium))
             }
             .foregroundStyle(selection == target ? Palette.greenDeep : Palette.inkFaint)
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, minHeight: itemHeight)
+            // SwiftUI แตะได้เฉพาะพื้นที่ที่วาดจริง ไอคอนกับข้อความจึงเป็นเป้าเล็ก ๆ
+            // กลางคอลัมน์ ที่เหลือกลายเป็นช่องตาย ต้องกำหนดรูปทรงรับสัมผัสเอง
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .animation(.spring(duration: 0.25), value: selection)

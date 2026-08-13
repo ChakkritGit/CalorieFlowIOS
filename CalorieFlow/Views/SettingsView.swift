@@ -1,70 +1,151 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// หน้าตั้งค่าหลัก — เป็นรายการหมวดหมู่ที่กดเข้าไปดูรายละเอียดอีกที
+///
+/// เดิมทุกการ์ดกองอยู่ในหน้าเดียวจนต้องเลื่อนยาวมาก แยกเป็นหมวดแล้วหาของเจอเร็วกว่า
+/// แถวที่เห็นสร้างเองด้วย `cardStyle()` ไม่ใช้ `List` เพราะ chrome ของ `List`
+/// ไม่เข้ากับหน้าอื่นในแอปที่เป็นการ์ดมุมมนทั้งหมด
 struct SettingsView: View {
+    @Environment(\.l10n) private var t
+
+    var body: some View {
+        NavigationStack {
+            ScreenScroll(title: t.settingsTitle) {
+                VStack(spacing: 12) {
+                    NavigationLink {
+                        ProfileSettingsView()
+                    } label: {
+                        SettingsRow(
+                            icon: "person.fill",
+                            tint: Palette.blue,
+                            title: t.sectionProfile,
+                            subtitle: t.settingsProfileSubtitle
+                        )
+                    }
+
+                    NavigationLink {
+                        GoalsSettingsView()
+                    } label: {
+                        SettingsRow(
+                            icon: "target",
+                            tint: Palette.green,
+                            title: t.sectionGoals,
+                            subtitle: t.settingsGoalsSubtitle
+                        )
+                    }
+
+                    NavigationLink {
+                        AppearanceSettingsView()
+                    } label: {
+                        SettingsRow(
+                            icon: "paintbrush.fill",
+                            tint: Palette.purple,
+                            title: t.sectionAppearance,
+                            subtitle: t.settingsAppearanceSubtitle
+                        )
+                    }
+
+                    // TODO: ต่อเข้ากับ `ModelDownloadView()` เมื่อไฟล์นั้นถูกเพิ่มเข้า target
+                    // ยังไม่ทำเป็น NavigationLink เพราะปลายทางยังไม่มีจริง กดแล้วจะเข้าหน้าว่าง
+                    SettingsRow(
+                        icon: "arrow.down.circle.fill",
+                        tint: Palette.orange,
+                        title: t.settingsModelTitle,
+                        subtitle: t.settingsModelSubtitle,
+                        badge: t.settingsModelComingSoon,
+                        showsChevron: false
+                    )
+                    .opacity(0.6)
+
+                    NavigationLink {
+                        DataSettingsView()
+                    } label: {
+                        SettingsRow(
+                            icon: "doc.text",
+                            tint: Palette.blueDeep,
+                            title: t.sectionData,
+                            subtitle: t.settingsDataSubtitle
+                        )
+                    }
+                }
+                // กัน NavigationLink ย้อมข้อความในการ์ดเป็นสี accent
+                .buttonStyle(.plain)
+            }
+            .toolbar(.hidden, for: .navigationBar)
+        }
+    }
+}
+
+/// แถวหมวดหมู่ — การ์ดมุมมนแบบเดียวกับหน้าอื่น ไม่ใช่แถวของ `List`
+private struct SettingsRow: View {
+    let icon: String
+    let tint: Color
+    let title: String
+    var subtitle: String
+    var badge: String?
+    var showsChevron: Bool = true
+
+    var body: some View {
+        HStack(spacing: 16) {
+            Image(systemName: icon)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 44, height: 44)
+                .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Palette.ink)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(Palette.inkSoft)
+                    .multilineTextAlignment(.leading)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            if let badge {
+                Text(badge)
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(Palette.inkFaint)
+            }
+
+            if showsChevron {
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Palette.inkFaint)
+            }
+        }
+        .cardStyle(padding: 16)
+        .contentShape(Rectangle())
+    }
+}
+
+// MARK: - ข้อมูลส่วนตัว
+
+private struct ProfileSettingsView: View {
     @Environment(AppStore.self) private var store
-    @Environment(Preferences.self) private var preferences
-    @Environment(AICoach.self) private var coach
     @Environment(\.l10n) private var t
 
     @State private var newWeight = ""
-    @State private var showImporter = false
-    @State private var exportURL: URL?
-    @State private var alert: AlertState?
-    @State private var pendingImport: Data?
-
-    private struct AlertState: Identifiable {
-        let id = UUID()
-        var title: String
-        var message: String
-    }
+    @State private var savedNotice = false
 
     var body: some View {
-        ScreenScroll(title: t.settingsTitle) {
-            SectionHeader(title: t.sectionProfile)
+        SettingsDetailScreen(title: t.sectionProfile) {
             profileCard
             weightCard
-
-            SectionHeader(title: t.sectionGoals)
-            goalCard
-            manualTDEECard
-            waterGoalCard
-
-            SectionHeader(title: t.sectionAppearance)
-            appearanceCard
-            aiCard
-
-            SectionHeader(title: t.sectionData)
-            dataCard
         }
-        .fileImporter(isPresented: $showImporter, allowedContentTypes: [.data]) { result in
-            handleImport(result)
-        }
-        .sheet(isPresented: Binding(get: { exportURL != nil }, set: { if !$0 { exportURL = nil } })) {
-            if let exportURL {
-                ShareSheet(items: [exportURL])
-            }
-        }
-        .alert(item: $alert) { state in
-            Alert(title: Text(state.title), message: Text(state.message), dismissButton: .default(Text(t.ok)))
-        }
-        .confirmationDialog(
-            t.confirmImportTitle,
-            isPresented: Binding(get: { pendingImport != nil }, set: { if !$0 { pendingImport = nil } }),
-            titleVisibility: .visible
-        ) {
-            Button(t.importOverwrite, role: .destructive) { commitImport() }
-            Button(t.cancel, role: .cancel) { pendingImport = nil }
+        .alert(t.successTitle, isPresented: $savedNotice) {
+            Button(t.ok, role: .cancel) {}
         } message: {
-            Text(t.confirmImportMessage)
+            Text(t.weightUpdated)
         }
     }
-
-    // MARK: - Profile
 
     private var profileCard: some View {
         VStack(alignment: .leading, spacing: 20) {
-            field(t.nameLabel) {
+            settingsField(t.nameLabel) {
                 TextField(t.nameLabel, text: Binding(
                     get: { store.user.name },
                     set: { name in store.updateProfile { $0.name = name } }
@@ -74,7 +155,7 @@ struct SettingsView: View {
                 .inputFieldStyle()
             }
 
-            field(t.genderLabel) {
+            settingsField(t.genderLabel) {
                 HStack(spacing: 8) {
                     genderButton(.male, label: t.male, tint: Palette.blue)
                     genderButton(.female, label: t.female, tint: Palette.pink)
@@ -82,7 +163,7 @@ struct SettingsView: View {
             }
 
             HStack(spacing: 16) {
-                field(t.heightLabel) {
+                settingsField(t.heightLabel) {
                     numberField(
                         value: Binding(
                             get: { store.user.height },
@@ -90,7 +171,7 @@ struct SettingsView: View {
                         )
                     )
                 }
-                field(t.ageLabel) {
+                settingsField(t.ageLabel) {
                     numberField(
                         value: Binding(
                             get: { Double(store.user.age) },
@@ -101,7 +182,7 @@ struct SettingsView: View {
                 }
             }
 
-            field(t.activityFieldLabel) {
+            settingsField(t.activityFieldLabel) {
                 Picker(t.activityFieldLabel, selection: Binding(
                     get: { store.user.activityLevel },
                     set: { level in store.updateProfile { $0.activityLevel = level } }
@@ -140,8 +221,6 @@ struct SettingsView: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: - Weight
-
     private var weightCard: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
@@ -162,7 +241,7 @@ struct SettingsView: View {
                     if let weight = Double(newWeight), weight > 0 {
                         store.recordWeight(weight)
                         newWeight = ""
-                        alert = AlertState(title: t.successTitle, message: t.weightUpdated)
+                        savedNotice = true
                     }
                 }
                 .font(.subheadline.weight(.medium))
@@ -174,12 +253,25 @@ struct SettingsView: View {
         }
         .cardStyle()
     }
+}
 
-    // MARK: - Goals
+// MARK: - เป้าหมายและการคำนวณ
+
+private struct GoalsSettingsView: View {
+    @Environment(AppStore.self) private var store
+    @Environment(\.l10n) private var t
+
+    var body: some View {
+        SettingsDetailScreen(title: t.sectionGoals) {
+            goalCard
+            manualTDEECard
+            waterGoalCard
+        }
+    }
 
     private var goalCard: some View {
         VStack(alignment: .leading, spacing: 20) {
-            field(t.goalLabelTitle) {
+            settingsField(t.goalLabelTitle) {
                 HStack(spacing: 8) {
                     ForEach(GoalType.allCases) { goal in
                         Button {
@@ -275,14 +367,27 @@ struct SettingsView: View {
         }
         .cardStyle()
     }
+}
 
-    // MARK: - Appearance
+// MARK: - การแสดงผล
+
+private struct AppearanceSettingsView: View {
+    @Environment(Preferences.self) private var preferences
+    @Environment(AICoach.self) private var coach
+    @Environment(\.l10n) private var t
+
+    var body: some View {
+        SettingsDetailScreen(title: t.sectionAppearance) {
+            appearanceCard
+            aiCard
+        }
+    }
 
     private var appearanceCard: some View {
         @Bindable var preferences = preferences
 
         return VStack(alignment: .leading, spacing: 20) {
-            field(t.themeLabel) {
+            settingsField(t.themeLabel) {
                 Picker(t.themeLabel, selection: $preferences.appearance) {
                     ForEach(AppAppearance.allCases) { option in
                         Text(t.appearanceLabel(option)).tag(option)
@@ -291,14 +396,20 @@ struct SettingsView: View {
                 .pickerStyle(.segmented)
             }
 
-            field(t.languageLabel) {
+            settingsField(t.languageLabel) {
                 Picker(t.languageLabel, selection: $preferences.language) {
                     ForEach(AppLanguage.allCases) { option in
-                        Text(option.nativeName).tag(option)
+                        Text(t.languageOptionLabel(option)).tag(option)
                     }
                 }
                 .pickerStyle(.segmented)
             }
+
+            // ข้อความในแอปเปลี่ยนทันทีเพราะ `L10n` ไหลผ่าน environment แต่ของที่
+            // ระบบเป็นคนวาด (เมนู, รูปแบบวันที่ที่แคชไว้) ต้องเปิดแอปใหม่ถึงจะครบ
+            Text(t.languageRestartNote)
+                .font(.caption2)
+                .foregroundStyle(Palette.inkFaint)
         }
         .cardStyle()
     }
@@ -321,8 +432,51 @@ struct SettingsView: View {
         }
         .cardStyle()
     }
+}
 
-    // MARK: - Data
+// MARK: - ข้อมูล
+
+private struct DataSettingsView: View {
+    @Environment(AppStore.self) private var store
+    @Environment(\.l10n) private var t
+
+    @State private var showImporter = false
+    @State private var exportURL: URL?
+    @State private var alert: AlertState?
+    @State private var pendingImport: Data?
+
+    private struct AlertState: Identifiable {
+        let id = UUID()
+        var title: String
+        var message: String
+    }
+
+    var body: some View {
+        SettingsDetailScreen(title: t.sectionData) {
+            dataCard
+        }
+        .fileImporter(isPresented: $showImporter, allowedContentTypes: [.data]) { result in
+            handleImport(result)
+        }
+        .sheet(isPresented: Binding(get: { exportURL != nil }, set: { if !$0 { exportURL = nil } })) {
+            if let exportURL {
+                ShareSheet(items: [exportURL])
+            }
+        }
+        .alert(item: $alert) { state in
+            Alert(title: Text(state.title), message: Text(state.message), dismissButton: .default(Text(t.ok)))
+        }
+        .confirmationDialog(
+            t.confirmImportTitle,
+            isPresented: Binding(get: { pendingImport != nil }, set: { if !$0 { pendingImport = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button(t.importOverwrite, role: .destructive) { commitImport() }
+            Button(t.cancel, role: .cancel) { pendingImport = nil }
+        } message: {
+            Text(t.confirmImportMessage)
+        }
+    }
 
     private var dataCard: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -407,34 +561,53 @@ struct SettingsView: View {
             alert = AlertState(title: t.errorTitle, message: t.invalidBackup)
         }
     }
+}
 
-    // MARK: - Small builders
+// MARK: - โครงหน้าย่อย + ตัวช่วยเล็ก ๆ
 
-    private func field<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(label).font(.subheadline.weight(.medium)).foregroundStyle(Palette.inkSoft)
+/// หน้าย่อยของการตั้งค่า — ใช้ `ScreenScroll` เหมือนหน้าอื่น เหลือไว้แค่ปุ่มย้อนกลับ
+/// ของ navigation bar (ตั้ง title เป็น inline ว่าง ๆ เพราะหัวข้อวาดเองใน `ScreenScroll`)
+private struct SettingsDetailScreen<Content: View>: View {
+    let title: String
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        ScreenScroll(title: title) {
             content()
         }
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Palette.background, for: .navigationBar)
     }
+}
 
-    private func numberField(value: Binding<Double>, decimals: Int = 1) -> some View {
-        TextField("0", value: value, format: .number.precision(.fractionLength(0...decimals)))
-            .keyboardType(decimals == 0 ? .numberPad : .decimalPad)
-            .inputFieldStyle()
+private func settingsField<Content: View>(
+    _ label: String,
+    @ViewBuilder content: () -> Content
+) -> some View {
+    VStack(alignment: .leading, spacing: 6) {
+        Text(label).font(.subheadline.weight(.medium)).foregroundStyle(Palette.inkSoft)
+        content()
     }
+}
 
-    private func infoTile<Content: View>(
-        caption: String,
-        tint: Color,
-        background: Color,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(caption).font(.caption2).foregroundStyle(tint.opacity(0.8))
-            content().foregroundStyle(tint)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .background(background, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+private func numberField(value: Binding<Double>, decimals: Int = 1) -> some View {
+    TextField("0", value: value, format: .number.precision(.fractionLength(0...decimals)))
+        .keyboardType(decimals == 0 ? .numberPad : .decimalPad)
+        .inputFieldStyle()
+}
+
+private func infoTile<Content: View>(
+    caption: String,
+    tint: Color,
+    background: Color,
+    @ViewBuilder content: () -> Content
+) -> some View {
+    VStack(alignment: .leading, spacing: 4) {
+        Text(caption).font(.caption2).foregroundStyle(tint.opacity(0.8))
+        content().foregroundStyle(tint)
     }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(16)
+    .background(background, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 }
