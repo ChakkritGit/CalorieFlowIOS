@@ -338,6 +338,9 @@ struct L10n {
         case "modelNotReady":
             return s("โมเดลกำลังดาวน์โหลด ลองใหม่อีกครั้งภายหลัง",
                      "The model is still downloading — try again later")
+        case "coreMLUnusable":
+            return s("โมเดลในเครื่องรันไม่ได้บนอุปกรณ์นี้ — simulator ไม่มีเอนจิน MPSGraph ต้องทดสอบบนเครื่องจริง",
+                     "The on-device model can't run here — the simulator has no MPSGraph engine, so try a real device")
         default:
             return s("ใช้ AI ไม่ได้ในขณะนี้", "AI is unavailable right now")
         }

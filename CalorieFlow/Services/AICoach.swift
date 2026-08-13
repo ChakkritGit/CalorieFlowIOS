@@ -1,6 +1,12 @@
 import Foundation
 import Observation
+import OSLog
 import FoundationModels
+
+/// log ของเส้นทาง AI — ความล้มเหลวของ Core ML เคยถูกกลืนหายด้วย `try?` ทำให้เวลา
+/// โมเดลใช้ไม่ได้จะเห็นแค่ "ตอบไม่ได้" โดยไม่มีทางรู้ว่าติดตรงไหน
+/// ดูด้วย: `xcrun simctl spawn booted log stream --predicate 'subsystem == "com.chakkrit.calorieflow"'`
+let aiLog = Logger(subsystem: "com.chakkrit.calorieflow", category: "ai")
 
 /// ตัวสร้างคำแนะนำด้วยโมเดลภาษาในเครื่อง (Apple Intelligence)
 ///
@@ -262,14 +268,27 @@ final class AICoach {
 
             \(contextBlock(context, t))
             """
-            if let text = try? await backend.respond(
-                instructions: instructions,
-                history: Array(history),
-                prompt: question
-            ), !text.isEmpty {
-                chat.append(ChatMessage(role: .coach, text: text))
-                return
+            do {
+                let text = try await backend.respond(
+                    instructions: instructions,
+                    history: Array(history),
+                    prompt: question
+                )
+                if !text.isEmpty {
+                    chat.append(ChatMessage(role: .coach, text: text))
+                    return
+                }
+                aiLog.error("แชท: Core ML ตอบกลับมาเป็นข้อความว่าง")
+            } catch {
+                aiLog.error("แชท: Core ML ตอบไม่สำเร็จ: \(error, privacy: .public)")
             }
+        }
+
+        // ไม่มี backend ไหนตอบได้ ให้คำแนะนำแบบกฎธรรมดาแทนข้อความ "ตอบไม่ได้"
+        // ซึ่งไม่ช่วยอะไรผู้ใช้เลย — ตรงกับหลักที่ว่าต้องมีอะไรตอบเสมอ
+        if !usesModel || coreMLBackend == nil {
+            chat.append(ChatMessage(role: .coach, text: RuleBasedAdvisor.dailyTip(context, t)))
+            return
         }
 
         chat.append(ChatMessage(role: .coach, text: t.aiChatFailed))
@@ -307,10 +326,14 @@ final class AICoach {
             }
         }
 
-        if let backend = await coreML(),
-           let text = try? await backend.respond(instructions: instructions, prompt: prompt),
-           !text.isEmpty {
-            return text
+        if let backend = await coreML() {
+            do {
+                let text = try await backend.respond(instructions: instructions, prompt: prompt)
+                if !text.isEmpty { return text }
+                aiLog.error("Core ML ตอบกลับมาเป็นข้อความว่าง")
+            } catch {
+                aiLog.error("Core ML ตอบไม่สำเร็จ: \(error, privacy: .public)")
+            }
         }
 
         return fallback
@@ -330,11 +353,21 @@ final class AICoach {
         if let existing = coreMLBackend { return existing }
 
         do {
+            let started = Date()
             let backend = try await CoreMLBackend()
+            aiLog.info("โหลดโมเดล Core ML สำเร็จใน \(Date().timeIntervalSince(started), format: .fixed(precision: 1)) วินาที")
             coreMLBackend = backend
             return backend
         } catch {
+            aiLog.error("โหลดโมเดล Core ML ไม่สำเร็จ: \(error, privacy: .public)")
             coreMLFailed = true
+
+            // ไฟล์อยู่ครบแต่รันไม่ได้ — เกิดบน simulator ซึ่ง Espresso ถูก build มา
+            // โดยไม่มีเอนจิน MPSGraph (error -14) ต้องลดสถานะลงด้วย ไม่งั้นทุกฟีเจอร์
+            // จะคิดว่ามีโมเดลใช้อยู่แล้วไปจบที่ "ตอบไม่ได้" แทนที่จะถอยไปใช้กฎธรรมดา
+            if case .unsupported = Self.foundationModelsStatus() {
+                status = .unsupported(reason: "coreMLUnusable")
+            }
             return nil
         }
     }
