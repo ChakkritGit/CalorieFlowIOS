@@ -35,20 +35,28 @@ if "StatefulQwen" not in dir():
         "(หรือแปะเฉพาะส่วนนิยามคลาสมาก็ได้ ไม่ต้องรันขั้นแปลง)"
     )
 
-tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+# float32 ไม่ใช่ fp16 — PyTorch รัน fp16 บน CPU แล้วได้ NaN ตั้งแต่เลเยอร์ต้น ๆ
+# (Colab ไม่มี GPU ในเส้นทางนี้) ไฟล์นี้ตรวจ *ตรรกะ* ไม่ได้ตรวจความแม่นของ dtype
+# จึงใช้ float32 ได้โดยไม่เสียความหมายของการทดสอบ — กินแรมราว 6 GB
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_NAME,
-    torch_dtype=torch.float16,
+    torch_dtype=torch.float32,
     low_cpu_mem_usage=True,
     attn_implementation="eager",
 )
 model.eval()
+tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 
 ids = tokenizer(PROMPT, return_tensors="pt").input_ids.to(torch.int32)
 print(f"prompt: {PROMPT!r}  ({ids.shape[1]} token)")
 
 
 def top5(logits, label):
+    # กันไม่ให้เทียบ NaN กับ NaN แล้วสรุปว่า "ตรงกัน" — topk ของ NaN ล้วนคืน
+    # index เรียงตามลำดับเดิม ทุกทางจึงได้ผลเท่ากันหมดโดยไม่ได้วัดอะไรเลย
+    if torch.isnan(logits).any():
+        raise SystemExit(f"{label}: logits เป็น NaN — ผลเทียบไม่มีความหมาย")
+
     values, indices = logits.float().topk(5)
     pairs = [
         f"{tokenizer.decode([i])!r}={v:.1f}"
@@ -78,7 +86,8 @@ def run_wrapper(chunks):
             q = chunk.shape[1]
             ctx = past + q
             # mask เหมือนที่ฝั่ง Swift สร้าง: แถว i เห็นได้ถึงคอลัมน์ past + i
-            mask = torch.full((1, 1, q, ctx), torch.finfo(torch.float16).min, dtype=torch.float16)
+            dtype = next(model.parameters()).dtype
+            mask = torch.full((1, 1, q, ctx), torch.finfo(dtype).min, dtype=dtype)
             for row in range(q):
                 mask[0, 0, row, : past + row + 1] = 0
             logits = wrapper(chunk, mask)
@@ -86,11 +95,13 @@ def run_wrapper(chunks):
     return logits[0, -1]
 
 
-bulk_top = top5(run_wrapper([ids]), "wrapper ก้อนเดียว")
+bulk = run_wrapper([ids])
+bulk_top = top5(bulk, "wrapper ก้อนเดียว")
 
 # ── ทางที่ 2: ป้อนทีละ token — เส้นทาง decode ล้วน ────────────────────────
 one_by_one = [ids[:, i : i + 1] for i in range(ids.shape[1])]
-seq_top = top5(run_wrapper(one_by_one), "wrapper ทีละ token")
+seq = run_wrapper(one_by_one)
+seq_top = top5(seq, "wrapper ทีละ token")
 
 # ── ทางที่ 3: แบ่งก้อนไม่เท่ากัน — ทดสอบ prefill หลายก้อน ─────────────────
 if ids.shape[1] >= 3:
@@ -100,6 +111,12 @@ else:
     split_top = ref_top
 
 print()
+# ตัวเลขสำคัญกว่าอันดับ — อันดับตรงกันได้แม้ค่าจะเพี้ยน ที่ Core ML เจอคือ
+# ต่างกัน 27.9 ถ้าตรงนี้ต่างกันน้อยกว่า ~0.1 ถือว่าตรรกะเหมือนกัน
+print(f"ก้อนเดียว vs อ้างอิง : ต่างสูงสุด {(bulk - reference).abs().max():.4f}")
+print(f"ทีละ token vs อ้างอิง: ต่างสูงสุด {(seq - reference).abs().max():.4f}")
+print()
+
 if ref_top[0] == bulk_top[0] == seq_top[0] == split_top[0]:
     print("ตรงกันทั้งหมด -> ตรรกะ cache/mask/position ถูก")
     print("ผู้ร้ายคือขั้น quantize ให้ลอง EMBEDDING_POLICY = 'untie'")
