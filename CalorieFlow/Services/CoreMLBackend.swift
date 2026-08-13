@@ -63,7 +63,12 @@ actor CoreMLBackend {
         let configuration = MLModelConfiguration()
         configuration.computeUnits = Self.computeUnits
 
+        // คร่อมการโหลดด้วย ไม่ใช่แค่ตอน predict — `MLModel.load` คือขั้นที่ Core ML
+        // สร้าง execution plan ซึ่งเป็นจุดที่เคยล้มมาแล้ว (error -14 บน simulator)
+        // และล้มแบบ assert ได้เหมือนกัน
+        ModelStore.markInFlight()
         model = try await MLModel.load(contentsOf: modelURL, configuration: configuration)
+        ModelStore.clearInFlight()
 
         // อ่านสอง json เข้ามาเองแทนที่จะใช้ `AutoTokenizer.from(modelFolder:)`
         // เพราะตัวนั้นบังคับให้มี `config.json` ของโมเดล PyTorch อยู่ในโฟลเดอร์ด้วย
@@ -113,8 +118,8 @@ actor CoreMLBackend {
         }
 
         // ปักธงคร่อมการเรียกโมเดลทั้งชุด เพราะจุดที่ assert ได้คือ `predict`
-        await MainActor.run { ModelStore.markInFlight() }
-        defer { Task { @MainActor in ModelStore.clearInFlight() } }
+        ModelStore.markInFlight()
+        defer { ModelStore.clearInFlight() }
 
         let state = model.makeState()
 

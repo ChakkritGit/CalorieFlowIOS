@@ -57,6 +57,12 @@ extension L10n {
           "Without it the coach still works, using rule-based advice.")
     }
 
+    /// ขึ้นเมื่อไฟล์โมเดลอยู่ครบแต่รอบก่อนแอปแครชคาการเรียก
+    var modelCrashedNote: String {
+        m("โมเดลทำให้แอปปิดตัวเองรอบที่แล้ว จึงถูกปิดไว้ชั่วคราว — ลบแล้วโหลดใหม่ถ้าอยากลองอีกครั้ง",
+          "The model crashed the app last time, so it's disabled for now — delete and download again to retry")
+    }
+
     func modelStepLabel(_ index: Int, _ total: Int) -> String {
         m("ไฟล์ที่ \(index) จาก \(total)", "File \(index) of \(total)")
     }

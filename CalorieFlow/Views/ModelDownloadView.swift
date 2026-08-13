@@ -75,9 +75,17 @@ struct ModelDownloadView: View {
                 }
 
             case .ready:
-                Text(t.modelFallbackNote)
-                    .font(.caption)
-                    .foregroundStyle(Palette.inkFaint)
+                // ไฟล์ครบแต่รอบก่อนแครชคาการเรียกโมเดล — แอปจะไม่แตะมันอีกจนกว่าจะลบ
+                // ถ้าไม่บอกตรงนี้ ผู้ใช้จะเห็นแค่ "พร้อมใช้" แล้วสงสัยว่าทำไมโค้ชเงียบ
+                if ModelStore.crashedLastRun {
+                    Label(t.modelCrashedNote, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(Palette.orange)
+                } else {
+                    Text(t.modelFallbackNote)
+                        .font(.caption)
+                        .foregroundStyle(Palette.inkFaint)
+                }
                 deleteButton
 
             case let .failed(failure):
