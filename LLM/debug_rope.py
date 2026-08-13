@@ -3,7 +3,15 @@
 ทำไมต้องเล็กขนาดนี้ — โมเดลเต็มแปลงทีนึงกินเวลาหลายสิบนาทีและเคย OOM มาแล้ว
 ส่วนนี้มีน้ำหนักราว 2.7M ตัว แปลงเสร็จในไม่กี่วินาที ไฟล์ไม่กี่ MB ส่งข้ามเครื่องง่าย
 
-เหตุผลที่สงสัย RoPE — สรุปจากที่ไล่มา:
+**RoPE ตรวจแล้ว ถูกต้อง** — Q/K หลังใส่ RoPE ตรงกับ PyTorch ทุกเคส คลาดเคลื่อน
+สูงสุด 0.25 บนค่าที่ใหญ่ถึง 317 ซึ่งเป็นความคลาดเคลื่อนของ fp16 ล้วน ๆ
+
+รอบต่อไปจึงขยายไปจับสิ่งที่ยังไม่เคยตรวจ: **ค่าที่อ่านออกมาจาก cache** (`k_cached`
+ยาว ctx ต่างจาก `k_rope` ที่มีแค่ token ใหม่) และ **ผลลัพธ์ของ attention ทั้งก้อน**
+(`attn_out` ครอบ repeat_kv, softmax, o_proj) ถ้า k_cached ผิด แปลว่าปัญหาอยู่ที่
+การอ่าน state ถ้า k_cached ถูกแต่ attn_out ผิด แปลว่าอยู่ที่ตัว attention
+
+บริบทเดิม — สรุปจากที่ไล่มา:
 
 - ctx = 1 ผลตรงกับ PyTorch เป๊ะ, ctx >= 2 พังทุกกรณี
 - **ที่ ctx = 1 มี key ตัวเดียว softmax ของค่าเดียวได้ 1.0 เสมอ ค่า K จึงไม่มีผล
@@ -69,7 +77,13 @@ class SliceUpdateKeyValueCache(Cache):
         end = self.past_seen_tokens + k_state.shape[-2]
         self.k[layer_idx, :, :, begin:end, :] = k_state
         self.v[layer_idx, :, :, begin:end, :] = v_state
-        return self.k[layer_idx, :, :, :end, :], self.v[layer_idx, :, :, :end, :]
+        k_out = self.k[layer_idx, :, :, :end, :]
+        v_out = self.v[layer_idx, :, :, :end, :]
+        # เก็บไว้ให้ probe คืนออกไปเทียบ — นี่คือค่าที่ attention ใช้จริง
+        # ยาว ctx ไม่ใช่ q ต่างจาก k ที่ออกจาก RoPE ซึ่งมีแค่ token ใหม่
+        _captured["k_cached"] = k_out
+        _captured["v_cached"] = v_out
+        return k_out, v_out
 
     def get_seq_length(self, layer_idx=0):
         return self.past_seen_tokens
@@ -127,14 +141,20 @@ class RopeProbe(torch.nn.Module):
         position_ids = torch.arange(past, past + q_len).unsqueeze(0)
 
         _captured.clear()
-        self.attn(
+        attn_out = self.attn(
             hidden_states=hidden,
             attention_mask=causal_mask,
             position_ids=position_ids,
             past_key_value=self.kv_cache,
             use_cache=True,
+        )[0]
+        return (
+            _captured["q"],
+            _captured["k"],
+            _captured["k_cached"],
+            _captured["v_cached"],
+            attn_out,
         )
-        return _captured["q"], _captured["k"]
 
 
 probe = RopeProbe(attn, MAX_CONTEXT).eval()
@@ -144,6 +164,7 @@ probe = RopeProbe(attn, MAX_CONTEXT).eval()
 # ไม่ต้องหวังพึ่งว่า RNG สองเครื่องจะให้ค่าตรงกัน
 torch.manual_seed(0)
 reference = {}
+OUTPUT_NAMES = ["q_rope", "k_rope", "k_cached", "v_cached", "attn_out"]
 CASES = [(1, 1), (1, 2), (2, 2), (2, 3), (3, 3)]  # (q_len, ctx_len)
 
 for q_len, ctx in CASES:
@@ -152,14 +173,14 @@ for q_len, ctx in CASES:
     probe.keyCache.zero_()
     probe.valueCache.zero_()
     with torch.no_grad():
-        q_out, k_out = probe(hidden, mask)
-    if torch.isnan(q_out).any() or torch.isnan(k_out).any():
-        raise SystemExit("Q/K เป็น NaN ตั้งแต่ใน PyTorch — หยุดก่อน")
+        outs = probe(hidden, mask)
     tag = f"q{q_len}_ctx{ctx}"
     reference[f"{tag}_hidden"] = hidden.numpy()
-    reference[f"{tag}_q"] = q_out.numpy()
-    reference[f"{tag}_k"] = k_out.numpy()
-    print(f"{tag}: q{tuple(q_out.shape)} k{tuple(k_out.shape)}  |k|max={k_out.abs().max():.4f}")
+    for name, t in zip(OUTPUT_NAMES, outs):
+        if torch.isnan(t).any():
+            raise SystemExit(f"{tag}/{name} เป็น NaN ตั้งแต่ใน PyTorch — หยุดก่อน")
+        reference[f"{tag}_{name}"] = t.numpy()
+    print(f"{tag}: " + "  ".join(f"{n}{tuple(t.shape)}" for n, t in zip(OUTPUT_NAMES, outs)))
 
 np.savez("/content/rope_reference.npz", **reference)
 print("\nเซฟ /content/rope_reference.npz แล้ว")
@@ -193,10 +214,7 @@ mlmodel = ct.convert(
             dtype=np.float16,
         ),
     ],
-    outputs=[
-        ct.TensorType(name="q_rope", dtype=np.float16),
-        ct.TensorType(name="k_rope", dtype=np.float16),
-    ],
+    outputs=[ct.TensorType(name=n, dtype=np.float16) for n in OUTPUT_NAMES],
     states=[
         ct.StateType(
             wrapped_type=ct.TensorType(shape=cache_shape, dtype=np.float16),
