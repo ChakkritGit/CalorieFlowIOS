@@ -7,6 +7,8 @@ import UIKit
 /// จุดที่ระบบใช้ปลุกแอปกลับมาตอนดาวน์โหลดโมเดลที่ค้างไว้เสร็จ (ไฟล์ 1.6 GB
 /// ผู้ใช้สลับไปทำอย่างอื่นระหว่างรอแน่นอน)
 final class AppDelegate: NSObject, UIApplicationDelegate {
+    private var keyboardWarmed = false
+
     func application(
         _ application: UIApplication,
         handleEventsForBackgroundURLSession identifier: String,
@@ -15,6 +17,35 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         // เก็บไว้ให้ `DownloadCoordinator` เรียกคืนหลังจัดการ event ครบ
         // เรียกทันทีตรงนี้ไม่ได้ เพราะ session ยังส่ง event ที่ค้างไม่หมด
         ModelDownloader.backgroundEventsHandler = completionHandler
+    }
+
+    func applicationDidBecomeActive(_ application: UIApplication) {
+        guard !keyboardWarmed else { return }
+        keyboardWarmed = true
+        prewarmKeyboard()
+    }
+
+    /// โหลดกลไกคีย์บอร์ดไว้ล่วงหน้าตั้งแต่เปิดแอป
+    ///
+    /// iOS โหลดคีย์บอร์ดแบบ lazy ครั้งแรกที่มีช่องกรอกขอ focus ซึ่งกินเวลาหลักร้อย
+    /// มิลลิวินาทีขึ้นไป ปกติผู้ใช้ไม่ทันสังเกตเพราะกดที่ช่องกรอกแล้วรอคีย์บอร์ดอยู่แล้ว
+    /// แต่ `AddFoodView` สั่ง focus ทันทีใน `onAppear` การโหลดจึงไปชนกับอนิเมชันเปิด
+    /// sheet พอดี กด + ครั้งแรกเลยรู้สึกหน่วงชัดเจน ครั้งต่อไปไม่เป็นเพราะโหลดไว้แล้ว
+    ///
+    /// วิธีอุ่นคือให้ช่องกรอกขนาดศูนย์ขอ focus แล้วคืนทันทีในรอบ runloop เดียวกัน
+    /// คีย์บอร์ดจึงถูกสร้างโดยไม่ทันโผล่ให้เห็น
+    private func prewarmKeyboard() {
+        guard let window = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .flatMap(\.windows)
+            .first(where: \.isKeyWindow)
+        else { return }
+
+        let field = UITextField(frame: .zero)
+        window.addSubview(field)
+        field.becomeFirstResponder()
+        field.resignFirstResponder()
+        field.removeFromSuperview()
     }
 }
 
