@@ -6,6 +6,7 @@ import SwiftUI
 /// กิกะไบต์ต้องเป็นการตัดสินใจที่ผู้ใช้เห็นตัวเลขก่อนกด ไม่ใช่รู้ทีหลังตอนเน็ตหมด
 struct ModelDownloadView: View {
     @Environment(\.l10n) private var t
+    @Environment(AICoach.self) private var coach
 
     @State private var downloader = ModelDownloader.shared
 
@@ -21,6 +22,10 @@ struct ModelDownloadView: View {
         .background(Palette.background)
         .navigationTitle(t.modelTitle)
         .navigationBarTitleDisplayMode(.inline)
+        // `AICoach` เช็กไฟล์บนดิสก์ครั้งเดียวตอนสร้าง ต้องบอกให้ประเมินใหม่เมื่อ
+        // สถานะเปลี่ยน ไม่งั้นโหลดเสร็จแล้วก็ยังได้คำแนะนำแบบกฎธรรมดาจนกว่าจะรีสตาร์ท
+        // (และเช่นเดียวกันตอนลบโมเดล ต้องปล่อย backend ที่ถืออยู่ทิ้ง)
+        .onChange(of: downloader.phase) { coach.refreshAvailability() }
     }
 
     // MARK: - Sections

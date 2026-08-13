@@ -66,7 +66,9 @@ final class ModelDownloader {
         }
     }
 
-    enum Phase {
+    /// `Equatable` เพื่อให้ view สังเกตการเปลี่ยนสถานะได้ด้วย `onChange` — ตัวที่ต้องรู้
+    /// คือ `AICoach` ซึ่งเช็กไฟล์บนดิสก์ครั้งเดียวตอนสร้าง
+    enum Phase: Equatable {
         case notInstalled
         case downloading(Progress)
         /// รวมทั้งการแตก zip และการคอมไพล์ — ทั้งคู่ยาวและวัดความคืบหน้าไม่ได้จริง
