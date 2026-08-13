@@ -241,6 +241,11 @@ DRIVE_ZIP_PATH = f"/content/drive/MyDrive/{OUTPUT_NAME}.zip"
 # ข้างล่าง ประกาศตรงนี้เพราะชื่อ checkpoint ต้องอ้างถึงมัน
 ATTN_SCALE = 64.0
 
+# รูปร่างของตาราง cos/sin ของ RoPE = (max_position_embeddings, head_dim)
+# ใช้หาตารางนี้ในกราฟ เพราะหาด้วยชื่อไม่ทนต่อการเปลี่ยนโค้ดฝั่ง PyTorch
+ROPE_TABLE_ROWS = 32768
+HEAD_DIM = 128
+
 # "rms64" อยู่ในชื่อเพราะกราฟผูกกับการแพตช์ RMSNorm — checkpoint ที่ trace ไว้
 # ก่อนแพตช์ใช้ต่อไม่ได้ ถ้าไม่แยกชื่อ สคริปต์จะหยิบของเก่ามา quantize เงียบ ๆ
 # แล้วได้ผลพังเหมือนเดิมโดยไม่มีอะไรเตือน
@@ -673,8 +678,8 @@ else:
 # ไม่ตอบ " Paris"
 #
 # ยกเว้นสองก้อนนี้แล้วไฟล์โตขึ้นราว 13 MB จากทั้งหมดกว่า 800 MB
-def find_const_names(model, needle):
-    """คืนชื่อ const ทุกก้อนในกราฟที่ชื่อมี `needle`
+def _const_outputs(model):
+    """คืน (ชื่อ, รูปร่าง) ของ const ทุกก้อนในกราฟ
 
     เดินบน protobuf ของ spec เองแทนที่จะใช้ `get_weights_metadata` เพราะตัวนั้น
     พังใน coremltools 8.3 — มันวน `child_op.inputs.items()` แล้วสะดุด op ที่รับ
@@ -683,24 +688,41 @@ def find_const_names(model, needle):
 
     ใน MIL ชื่อของ const คือชื่อ output ของมัน
     """
-    names = []
+    found = []
     for function in model.get_spec().mlProgram.functions.values():
         for block in function.block_specializations.values():
             for op in block.operations:
-                if op.type == "const":
-                    names += [o.name for o in op.outputs if needle in o.name]
-    return names
+                if op.type != "const":
+                    continue
+                for out in op.outputs:
+                    dims = out.type.tensorType.dimensions
+                    shape = []
+                    for d in dims:
+                        shape.append(d.constant.size if d.HasField("constant") else -1)
+                    found.append((out.name, tuple(shape)))
+    return found
 
 
-if QUANT_DTYPE is None:
-    print("ข้าม quantize ทั้งขั้น — เซฟเป็น fp16 ตามที่ตั้ง QUANT_DTYPE = None")
-else:
-    rope_consts = find_const_names(mlmodel, "rotary_emb")
-    if not rope_consts:
+def find_rope_consts(model, table_shape):
+    """หาตาราง cos/sin ของ RoPE
+
+    หาโดย **รูปร่าง** ไม่ใช่ชื่อ เพราะชื่อเปลี่ยนไปตามว่าโค้ดฝั่ง PyTorch แตะ
+    ตารางยังไง — ตอนที่ยังตัดตารางด้วย seq_len ชื่อจะเป็น
+    `model_model_layers_0_self_attn_rotary_emb_cos_cached` แต่พอเลิกตัด
+    coremltools พับ `.to(dtype)` เป็น const ก้อนใหม่ที่ไม่มีชื่อนั้นติดมาแล้ว
+    ส่วนรูปร่าง [max_position_embeddings, head_dim] ไม่เปลี่ยนตามอะไรทั้งนั้น
+    """
+    return [name for name, shape in _const_outputs(model) if shape == table_shape]
+
+
+    rope_shape = (ROPE_TABLE_ROWS, HEAD_DIM)
+    rope_consts = find_rope_consts(mlmodel, rope_shape)
+    if len(rope_consts) != 2:
+        shapes = sorted({sh for _, sh in _const_outputs(mlmodel) if len(sh) == 2}, reverse=True)
         raise SystemExit(
-            "หา const ของ RoPE ไม่เจอ — ชื่ออาจเปลี่ยนไปตามรุ่น transformers\n"
+            f"หาตาราง RoPE รูป {rope_shape} เจอ {len(rope_consts)} ก้อน ต้องเจอ 2 (cos กับ sin)\n"
             "อย่าปล่อยผ่าน ถ้า quantize ทับตารางนี้โมเดลจะพ่นขยะโดยไม่มี error\n"
-            "ลองหาชื่อที่ใกล้เคียงด้วย find_const_names(mlmodel, 'cos') ดูก่อน"
+            f"รูปร่าง 2 มิติที่มีในกราฟ: {shapes[:12]}"
         )
     print(f"Quantizing to {QUANT_DTYPE}...")
     print(f"เว้นไม่ quantize {len(rope_consts)} ก้อน: {rope_consts}")
