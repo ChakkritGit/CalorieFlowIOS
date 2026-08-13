@@ -75,6 +75,16 @@ struct CardModifier: ViewModifier {
     }
 }
 
+/// สั่งปิดคีย์บอร์ดโดยไม่ผ่าน `@FocusState`
+///
+/// แต่ละหน้าผูก `@FocusState` ไม่เหมือนกัน บางหน้าไม่มีเลย การสั่งผ่าน responder chain
+/// จึงเป็นวิธีเดียวที่ครอบได้ทุกช่องโดยไม่ต้องไปแก้ทีละหน้า
+func hideKeyboard() {
+    UIApplication.shared.sendAction(
+        #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil
+    )
+}
+
 extension View {
     func cardStyle(padding: CGFloat = 24) -> some View {
         modifier(CardModifier(padding: padding))

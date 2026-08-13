@@ -19,6 +19,15 @@ struct AddFoodView: View {
     }
 
     var body: some View {
+        // ต้องมี NavigationStack ครอบ ไม่งั้น `ToolbarItemGroup(placement: .keyboard)`
+        // ไม่ถูกแสดงเลย — sheet เปล่า ๆ ไม่มีที่ให้ toolbar เกาะ ปุ่ม Done จึงหายไป
+        // เงียบ ๆ โดยไม่มี error ให้เห็น (ซ่อน navigation bar ไว้ หน้าตาจึงเหมือนเดิม)
+        NavigationStack {
+            content
+        }
+    }
+
+    private var content: some View {
         ScreenScroll(title: t.addFoodTitle) {
             VStack(alignment: .leading, spacing: 24) {
                 VStack(alignment: .leading, spacing: 8) {
@@ -77,12 +86,10 @@ struct AddFoodView: View {
             }
             .cardStyle()
         }
-        // ช่องแคลอรี่เป็น numberPad ซึ่งไม่มีปุ่ม return ให้กดปิด และ sheet ก็ไม่ได้
-        // รับ `.ignoresSafeArea(.keyboard)` ของ RootView มาด้วย (คนละ hierarchy)
-        // จึงต้องมีทางปิดคีย์บอร์ดของตัวเองครบทั้งสามทาง
+        // ช่องแคลอรี่เป็น numberPad ซึ่งไม่มีปุ่ม return ให้กดปิด จึงต้องมีทางอื่น
+        // ส่วนการแตะที่ว่างเพื่อปิด อยู่ที่พื้นหลังของ `ScreenScroll` แล้ว
         .scrollDismissesKeyboard(.interactively)
-        // ใช้ simultaneousGesture เพื่อไม่ไปแย่ง gesture ของ ScrollView และปุ่มข้างใน
-        .simultaneousGesture(TapGesture().onEnded { focus = nil })
+        .toolbar(.hidden, for: .navigationBar)
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()

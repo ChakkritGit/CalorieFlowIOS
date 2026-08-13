@@ -138,6 +138,14 @@ struct ScreenScroll<Content: View>: View {
             .padding(.bottom, 110)
         }
         .scrollIndicators(.hidden)
-        .background(Palette.background)
+        // แตะที่ว่างแล้วปิดคีย์บอร์ด — วางไว้ที่พื้นหลังซึ่งอยู่ *หลัง* เนื้อหา
+        // ปุ่มกับช่องกรอกจึงรับสัมผัสของตัวเองไปก่อน ที่เหลือถึงตกมาถึงตรงนี้
+        //
+        // เคยลอง `.simultaneousGesture(TapGesture())` ที่ตัว ScrollView แล้วไม่ทำงาน
+        // จริงบนเครื่อง เพราะ gesture ของ ScrollView กินไปก่อน
+        .background(
+            Palette.background
+                .onTapGesture { hideKeyboard() }
+        )
     }
 }

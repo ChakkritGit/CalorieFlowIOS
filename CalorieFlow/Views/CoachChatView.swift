@@ -31,6 +31,9 @@ struct CoachChatView: View {
                         .padding(20)
                     }
                     .scrollIndicators(.hidden)
+                    // หน้านี้ไม่ได้ใช้ `ScreenScroll` จึงต้องใส่การแตะปิดคีย์บอร์ดเอง
+                    .scrollDismissesKeyboard(.interactively)
+                    .background(Palette.background.onTapGesture { hideKeyboard() })
                     .onChange(of: coach.chat.count) { _, _ in
                         withAnimation { proxy.scrollTo(coach.chat.last?.id, anchor: .bottom) }
                     }
