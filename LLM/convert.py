@@ -231,8 +231,15 @@ TAG = QUANT_DTYPE or "fp16"
 OUTPUT_NAME = f"Qwen-{TAG}.mlpackage"
 OUTPUT_PATH = f"/content/{OUTPUT_NAME}"
 DRIVE_ZIP_PATH = f"/content/drive/MyDrive/{OUTPUT_NAME}.zip"
+# ตัวหารที่ใช้กัน RMSNorm ล้นใน fp16 — เหตุผลเต็มอยู่ที่ _safe_rms_forward
+# ประกาศตรงนี้เพราะชื่อ checkpoint ต้องอ้างถึงมัน
+RMS_SCALE = 64.0
+
+# "rms64" อยู่ในชื่อเพราะกราฟผูกกับการแพตช์ RMSNorm — checkpoint ที่ trace ไว้
+# ก่อนแพตช์ใช้ต่อไม่ได้ ถ้าไม่แยกชื่อ สคริปต์จะหยิบของเก่ามา quantize เงียบ ๆ
+# แล้วได้ผลพังเหมือนเดิมโดยไม่มีอะไรเตือน
 FP16_PATH = (
-    f"/content/Qwen-fp16-{'untied' if UNTIE_LM_HEAD else 'tied'}"
+    f"/content/Qwen-fp16-rms{RMS_SCALE:.0f}-{'untied' if UNTIE_LM_HEAD else 'tied'}"
     f"-c{MAX_CONTEXT}-q{PREFILL_CHUNK}.mlpackage"
 )
 
@@ -301,9 +308,6 @@ class SliceUpdateKeyValueCache(Cache):
 #
 # แก้ที่ตัวโมเดลแทนที่จะไปยุ่งกับ op_selector ของ coremltools เพราะได้ผลแน่นอน
 # กว่าและไม่ผูกกับรายละเอียดภายในของเครื่องมือแปลง
-RMS_SCALE = 64.0
-
-
 def _safe_rms_forward(self, hidden_states):
     input_dtype = hidden_states.dtype
     x = hidden_states.to(torch.float32) / RMS_SCALE
