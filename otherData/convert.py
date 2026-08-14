@@ -482,7 +482,9 @@ class StatefulQwen(torch.nn.Module):
     def forward(self, input_ids, causal_mask, position_ids):
         # ตำแหน่งมาจาก input ตรง ๆ ไม่คำนวณจากรูปร่างอีกแล้ว — เป็นทั้งตำแหน่งของ
         # RoPE และดัชนีที่จะเขียนลง cache ใช้ค่าเดียวกันทั้งสองงานจึงไม่มีทางเพี้ยนกัน
-        self.kv_cache.positions = position_ids[0]
+        # `.long()` เพราะ `index_copy_` รับ index เป็น int64 เท่านั้น ส่วน input ฝั่ง
+        # Core ML เป็น int32 (ชนิดที่ Core ML รับสำหรับ integer input)
+        self.kv_cache.positions = position_ids[0].long()
         logits = self.model(
             input_ids=input_ids,
             attention_mask=causal_mask,

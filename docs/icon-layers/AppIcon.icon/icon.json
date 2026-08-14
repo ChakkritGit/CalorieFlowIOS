@@ -14,13 +14,23 @@
           "name" : "3-ring-progress"
         },
         {
+          "glass" : true,
           "image-name" : "2-ring-track.png",
           "name" : "2-ring-track"
         },
         {
           "blend-mode" : "normal",
-          "fill" : "automatic",
+          "fill-specializations" : [
+            {
+              "value" : "automatic"
+            },
+            {
+              "appearance" : "tinted",
+              "value" : "automatic"
+            }
+          ],
           "glass" : true,
+          "hidden" : false,
           "image-name" : "1-background.png",
           "name" : "1-background"
         }
