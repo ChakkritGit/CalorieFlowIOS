@@ -158,23 +158,30 @@ struct ScreenScroll<Content: View>: View {
 
 /// โครงหน้าย่อยที่ทุกหน้าใต้ "ตั้งค่า" ใช้ร่วมกัน รวมถึงหน้าโมเดล AI
 ///
-/// ยึดตามหน้าโมเดล AI เป็นต้นแบบ ไม่ใช่ `ScreenScroll` ที่หน้าอื่นเคยใช้ — ต่างกันสามจุด
-/// ที่เห็นได้จริงตรงแถบบน: ระยะขอบ 20 ไม่ใช่ 24, ระยะห่างระหว่างการ์ด 16 ไม่ใช่ 24,
-/// และ **ไม่บังคับพื้นหลังของ navigation bar** ปล่อยให้เป็นค่าปกติซึ่งโปร่งตอนยังไม่เลื่อน
-/// แล้วค่อยเบลอเมื่อเนื้อหาไหลลอดขึ้นไป การบังคับสีทึบทำให้แถบบนดูตันและไม่ต่อเนื่อง
-/// กับพื้นหลัง
+/// หัวเรื่องอยู่ใน**เนื้อหา** ไม่ใช่ใน navigation bar — แถบบนจึงเหลือแค่ปุ่มย้อนกลับ
+/// ทรงกลม ไม่มีข้อความและไม่มีเส้นแบ่ง ต่อเนื่องไปกับพื้นหลังของหน้า เป็นหน้าตาเดียว
+/// กับที่อยู่ใน docs/screenshots ซึ่งเป็นแบบที่ตกลงกันแล้ว
+///
+/// `navigationTitle("")` ยังต้องมี ไม่ใช่ตัดทิ้ง — ถ้าไม่ตั้ง SwiftUI จะไปหยิบชื่อ
+/// จากที่อื่นมาแสดงในแถบเอง แล้วจะได้ข้อความซ้ำกับหัวเรื่องในเนื้อหา
 struct SettingsDetailScreen<Content: View>: View {
     let title: String
     @ViewBuilder var content: () -> Content
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 24) {
+                Text(title)
+                    .font(.title2.bold())
+                    .foregroundStyle(Palette.ink)
+                    .padding(.horizontal, 8)
+
                 content()
             }
-            .padding(20)
-            // เผื่อแถบแท็บที่วาดเองด้านล่าง หน้าโมเดลไม่เคยต้องมีเพราะเนื้อหาสั้น
-            // แต่หน้าโปรไฟล์กับเป้าหมายยาวพอที่บรรทัดท้ายจะถูกบัง
+            .frame(maxWidth: 520)
+            .frame(maxWidth: .infinity)
+            .padding(24)
+            // เผื่อแถบแท็บที่วาดเองด้านล่าง
             .padding(.bottom, 110)
         }
         .scrollIndicators(.hidden)
@@ -183,7 +190,8 @@ struct SettingsDetailScreen<Content: View>: View {
             Palette.background
                 .onTapGesture { hideKeyboard() }
         )
-        .navigationTitle(title)
+        .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Palette.background, for: .navigationBar)
     }
 }

@@ -30,10 +30,6 @@ struct ModelDownloadView: View {
                 .font(.system(size: 28))
                 .foregroundStyle(Palette.green)
 
-            Text(t.modelTitle)
-                .font(.headline)
-                .foregroundStyle(Palette.ink)
-
             Text(t.modelIntro)
                 .font(.subheadline)
                 .foregroundStyle(Palette.inkSoft)
