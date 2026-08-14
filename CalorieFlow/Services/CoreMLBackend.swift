@@ -318,16 +318,41 @@ enum ModelStore {
     /// จึงปักธงไว้ก่อนเรียกครั้งแรกและถอนออกเมื่อรอดกลับมา ถ้าเปิดแอปมาแล้วเจอธง
     /// ค้างอยู่ แปลว่ารอบก่อนตายคาที่ — ปิดการใช้โมเดลไปเลย ให้ผู้ใช้ยังเข้าแอปได้
     private static let crashFlagKey = "calorieflow_coreml_in_flight"
+    /// บิลด์ที่แครช — เก็บคู่กับธง เพื่อให้บิลด์ใหม่ได้ลองอีกครั้ง
+    private static let crashBuildKey = "calorieflow_coreml_crashed_build"
+
+    private static var currentBuild: String {
+        Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
+    }
 
     /// รอบก่อนแครชกลางการเรียกโมเดลหรือเปล่า — อ่านครั้งเดียวตอนเปิดแอป
+    ///
+    /// ถ้าแครชด้วยบิลด์อื่น ให้ถือว่าไม่เคยแครช เพราะบิลด์ใหม่มักมีขึ้นเพื่อแก้เรื่องนี้
+    /// พอดี ถ้าไม่เช็กจุดนี้ผู้ใช้จะไม่มีทางได้ลองของที่เพิ่งแก้เลย นอกจากลบโมเดล
+    /// 1.6 GB แล้วโหลดใหม่ ซึ่งไม่มีเหตุผลที่ต้องทำ
     static let crashedLastRun: Bool = {
         let flagged = UserDefaults.standard.bool(forKey: crashFlagKey)
+        let build = UserDefaults.standard.string(forKey: crashBuildKey)
         UserDefaults.standard.set(false, forKey: crashFlagKey)
-        return flagged
+        return flagged && build == currentBuild
     }()
+
+    /// ให้ลองใหม่โดยไม่ต้องโหลดโมเดลซ้ำ — ผู้ใช้กดเองจากหน้าโมเดล
+    ///
+    /// เป็น `nonisolated(unsafe)` เพราะ `crashedLastRun` เป็น `let` ที่อ่านตอนเปิดแอป
+    /// ค่าที่ override ไว้จึงต้องเก็บแยก
+    nonisolated(unsafe) private static var retryRequested = false
+
+    static var isDisabledByCrash: Bool { crashedLastRun && !retryRequested }
+
+    static func allowRetryAfterCrash() {
+        retryRequested = true
+        UserDefaults.standard.removeObject(forKey: crashBuildKey)
+    }
 
     static func markInFlight() {
         UserDefaults.standard.set(true, forKey: crashFlagKey)
+        UserDefaults.standard.set(currentBuild, forKey: crashBuildKey)
     }
 
     static func clearInFlight() {
@@ -347,7 +372,7 @@ enum ModelStore {
     /// ตอนดาวน์โหลดเสร็จด้วย `MLModel.compileModel(at:)` แล้วเก็บผลไว้
     /// ใช้โมเดลได้ไหม — ไฟล์ครบอย่างเดียวไม่พอ ต้องไม่เพิ่งแครชคาการเรียกด้วย
     static var isUsable: Bool {
-        !crashedLastRun && compiledModelURL != nil && tokenizerFolderURL != nil
+        !isDisabledByCrash && compiledModelURL != nil && tokenizerFolderURL != nil
     }
 
     static var compiledModelURL: URL? {

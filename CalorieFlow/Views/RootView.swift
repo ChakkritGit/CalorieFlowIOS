@@ -155,3 +155,24 @@ struct ScreenScroll<Content: View>: View {
         )
     }
 }
+
+/// โครงหน้าย่อยที่ทุกหน้าใต้ "ตั้งค่า" ใช้ร่วมกัน
+///
+/// อยู่ตรงนี้ไม่ใช่ใน SettingsView.swift เพราะหน้าโมเดล AI อยู่คนละไฟล์แต่ต้องหน้าตา
+/// เหมือนกันเป๊ะ ตอนที่ต่างคนต่างประกอบโครงเอง navigation bar กับระยะขอบก็เพี้ยนคนละแบบ
+struct SettingsDetailScreen<Content: View>: View {
+    let title: String
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        // ไม่ส่ง title เข้า `ScreenScroll` แล้ว — ให้ navigation bar เป็นคนแสดงชื่อหน้า
+        // แบบ inline กลางจอ เหมือนหน้าโมเดล AI ไม่งั้นสองหน้านี้หน้าตาคนละแบบ
+        // ทั้งที่อยู่ระดับเดียวกันในลำดับชั้นเดียวกัน
+        ScreenScroll {
+            content()
+        }
+        .navigationTitle(title)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Palette.background, for: .navigationBar)
+    }
+}

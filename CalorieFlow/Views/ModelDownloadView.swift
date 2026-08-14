@@ -11,17 +11,11 @@ struct ModelDownloadView: View {
     @State private var downloader = ModelDownloader.shared
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                header
-                statusCard
-                footnote
-            }
-            .padding(20)
+        SettingsDetailScreen(title: t.modelTitle) {
+            header
+            statusCard
+            footnote
         }
-        .background(Palette.background)
-        .navigationTitle(t.modelTitle)
-        .navigationBarTitleDisplayMode(.inline)
         // `AICoach` เช็กไฟล์บนดิสก์ครั้งเดียวตอนสร้าง ต้องบอกให้ประเมินใหม่เมื่อ
         // สถานะเปลี่ยน ไม่งั้นโหลดเสร็จแล้วก็ยังได้คำแนะนำแบบกฎธรรมดาจนกว่าจะรีสตาร์ท
         // (และเช่นเดียวกันตอนลบโมเดล ต้องปล่อย backend ที่ถืออยู่ทิ้ง)
@@ -77,10 +71,15 @@ struct ModelDownloadView: View {
             case .ready:
                 // ไฟล์ครบแต่รอบก่อนแครชคาการเรียกโมเดล — แอปจะไม่แตะมันอีกจนกว่าจะลบ
                 // ถ้าไม่บอกตรงนี้ ผู้ใช้จะเห็นแค่ "พร้อมใช้" แล้วสงสัยว่าทำไมโค้ชเงียบ
-                if ModelStore.crashedLastRun {
+                if ModelStore.isDisabledByCrash {
                     Label(t.modelCrashedNote, systemImage: "exclamationmark.triangle.fill")
                         .font(.caption)
                         .foregroundStyle(Palette.orange)
+                    // ให้ลองใหม่ได้โดยไม่ต้องโหลดซ้ำ 1.6 GB
+                    action(t.modelRetryButton, tint: Palette.green) {
+                        ModelStore.allowRetryAfterCrash()
+                        coach.refreshAvailability()
+                    }
                 } else {
                     Text(t.modelFallbackNote)
                         .font(.caption)

@@ -556,22 +556,6 @@ private struct DataSettingsView: View {
 
 /// หน้าย่อยของการตั้งค่า — ใช้ `ScreenScroll` เหมือนหน้าอื่น เหลือไว้แค่ปุ่มย้อนกลับ
 /// ของ navigation bar (ตั้ง title เป็น inline ว่าง ๆ เพราะหัวข้อวาดเองใน `ScreenScroll`)
-private struct SettingsDetailScreen<Content: View>: View {
-    let title: String
-    @ViewBuilder var content: () -> Content
-
-    var body: some View {
-        // ไม่ส่ง title เข้า `ScreenScroll` แล้ว — ให้ navigation bar เป็นคนแสดงชื่อหน้า
-        // แบบ inline กลางจอ เหมือนหน้าโมเดล AI ไม่งั้นสองหน้านี้หน้าตาคนละแบบ
-        // ทั้งที่อยู่ระดับเดียวกันในลำดับชั้นเดียวกัน
-        ScreenScroll {
-            content()
-        }
-        .navigationTitle(title)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(Palette.background, for: .navigationBar)
-    }
-}
 
 private func settingsField<Content: View>(
     _ label: String,

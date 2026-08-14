@@ -60,7 +60,7 @@ extension L10n {
     /// ขึ้นเมื่อไฟล์โมเดลอยู่ครบแต่รอบก่อนแอปแครชคาการเรียก
     var modelCrashedNote: String {
         m("โมเดลทำให้แอปปิดตัวเองรอบที่แล้ว จึงถูกปิดไว้ชั่วคราว — ลบแล้วโหลดใหม่ถ้าอยากลองอีกครั้ง",
-          "The model crashed the app last time, so it's disabled for now — delete and download again to retry")
+          "The model crashed the app last time, so it's disabled for now")
     }
 
     func modelStepLabel(_ index: Int, _ total: Int) -> String {
