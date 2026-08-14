@@ -135,14 +135,16 @@ final class AICoach {
         \(t.aiPromptDailyTask)
         """
 
-        // 90 token พอสำหรับสองสามประโยค — ค่าเดิม 220 ทำให้การ์ดนี้ซึ่งรันเองตอนเปิดแอป
-        // ต้องเดินโมเดลหลายร้อยรอบ (คูณสองอีกเพราะต้องแทรกการเรียกคั่นทุกก้าว)
-        // ผู้ใช้เลยเห็น "กำลังคิด" ค้างเป็นนาที
+        // การ์ดนี้รันเองตอนเปิดแอป เวลาที่ใช้จึงเป็นเวลาที่ผู้ใช้ต้องนั่งดู "กำลังคิด"
+        // และมันแปรตรงกับจำนวน token ที่ขอ ไม่ใช่ความยาวคำตอบที่ได้จริง
+        //
+        // (เดิมคอมเมนต์ตรงนี้เขียนว่าต้องคูณสองเพราะแทรกการเรียกคั่นทุกก้าว —
+        // กราฟรุ่นใหม่ไม่มีมิติที่เปลี่ยนได้แล้วจึงไม่ต้องแทรก ค่าปรับนั้นหายไป)
         return await respond(
             to: prompt,
             instructions: t.aiSystemInstructions,
             fallback: fallback,
-            maxNewTokens: 90
+            maxNewTokens: 70
         )
     }
 
@@ -170,7 +172,7 @@ final class AICoach {
             to: prompt,
             instructions: t.aiSystemInstructions,
             fallback: fallback,
-            maxNewTokens: 110
+            maxNewTokens: 90
         )
     }
 
@@ -283,7 +285,9 @@ final class AICoach {
                 let text = try await backend.respond(
                     instructions: instructions,
                     history: Array(history),
-                    prompt: question
+                    prompt: question,
+                    // หน้าแชทผู้ใช้นั่งรออยู่ตรงหน้า ยาวกว่านี้คือรอนานขึ้นตรง ๆ
+                    maxNewTokens: 150
                 )
                 if !text.isEmpty {
                     chat.append(ChatMessage(role: .coach, text: text))
