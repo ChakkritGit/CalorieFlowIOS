@@ -161,25 +161,9 @@ struct ScreenScroll<Content: View>: View {
                 .ignoresSafeArea()
                 .onTapGesture { hideKeyboard() }
         )
-        .overlay(alignment: .top) { StatusBarBlur() }
     }
 }
 
-/// ฝ้าเบลอคลุมพื้นที่ status bar
-///
-/// ทาสีทึบไว้ข้างหลังทำให้ไม่มีแถบดำก็จริง แต่เนื้อหาที่เลื่อนขึ้นไปจะหายวับใต้ขอบ
-/// แบบตัดกึก ซึ่งไม่ใช่พฤติกรรมของ iOS — ของจริงจะเห็นเนื้อหาเบลอ ๆ อยู่ข้างหลัง
-///
-/// `frame(height: 0)` คู่กับ `ignoresSafeArea(edges: .top)` เป็นวิธีให้ view สูงเท่า
-/// safe area ด้านบนพอดีโดยไม่ต้องวัดเอง — ศูนย์บวกส่วนที่ล้นออกไป = ความสูงของ inset
-struct StatusBarBlur: View {
-    var body: some View {
-        Color.clear
-            .frame(height: 0)
-            .background(.ultraThinMaterial)
-            .ignoresSafeArea(edges: .top)
-    }
-}
 
 /// โครงหน้าย่อยที่ทุกหน้าใต้ "ตั้งค่า" ใช้ร่วมกัน รวมถึงหน้าโมเดล AI
 ///
@@ -221,5 +205,7 @@ struct SettingsDetailScreen<Content: View>: View {
         )
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
+        // สีทึบ ไม่ใช่วัสดุเบลอ — เคยลองปล่อยให้เป็นวัสดุมาตรฐานแล้วไม่เข้ากับหน้าตาแอป
+        .toolbarBackground(Palette.background, for: .navigationBar)
     }
 }
