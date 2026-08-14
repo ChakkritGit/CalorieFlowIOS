@@ -287,7 +287,7 @@ class FixedShapeKeyValueCache(Cache):
     รุ่นนี้จึงตัดต้นเหตุทิ้ง:
 
       * ตำแหน่งที่จะเขียนมาจาก **input** `position_ids` ไม่ใช่จากรูปร่าง
-      * เขียนด้วย `index_copy_` ซึ่งรับ index เป็น tensor จึงไม่ถูกตรึงตอน trace
+      * เขียนด้วย `scatter_` ซึ่งรับ index เป็น tensor จึงไม่ถูกตรึงตอน trace
         ต่างจากการเฉือนด้วย `begin:end` ที่ตรึงเป็นค่าคงที่
       * **อ่านคืนทั้งก้อน** ไม่เฉือน — ช่องที่ยังไม่ถูกเขียนถูกปิดด้วย mask อยู่แล้ว
         ความยาว key จึงเป็น MAX_CONTEXT ตายตัวเสมอ ไม่มีอะไรให้ resolve
@@ -306,8 +306,13 @@ class FixedShapeKeyValueCache(Cache):
         self.positions = None
 
     def update(self, k_state, v_state, layer_idx, cache_kwargs=None):
-        self.k[layer_idx].index_copy_(2, self.positions, k_state)
-        self.v[layer_idx].index_copy_(2, self.positions, v_state)
+        # ใช้ `scatter_` ไม่ใช่ `index_copy_` — coremltools ไม่มีตัวแปลงให้ `index_copy_`
+        #   RuntimeError: PyTorch convert function for op 'index_copy_' not implemented
+        # ทั้งสองตัวทำงานเหมือนกันในกรณีนี้ ต่างแค่ `scatter_` ต้องการ index ที่มีรูปร่าง
+        # เท่ากับ source จึงต้องขยายตำแหน่ง (q,) ให้เป็น (1, kv_heads, q, head_dim) ก่อน
+        index = self.positions.view(1, 1, -1, 1).expand_as(k_state)
+        self.k[layer_idx].scatter_(2, index, k_state)
+        self.v[layer_idx].scatter_(2, index, v_state)
         return self.k[layer_idx], self.v[layer_idx]
 
     def get_seq_length(self, layer_idx=0):
@@ -492,7 +497,7 @@ class StatefulQwen(torch.nn.Module):
     def forward(self, input_ids, causal_mask, position_ids):
         # ตำแหน่งมาจาก input ตรง ๆ ไม่คำนวณจากรูปร่างอีกแล้ว — เป็นทั้งตำแหน่งของ
         # RoPE และดัชนีที่จะเขียนลง cache ใช้ค่าเดียวกันทั้งสองงานจึงไม่มีทางเพี้ยนกัน
-        # `.long()` เพราะ `index_copy_` รับ index เป็น int64 เท่านั้น ส่วน input ฝั่ง
+        # `.long()` เพราะ `scatter_` รับ index เป็น int64 เท่านั้น ส่วน input ฝั่ง
         # Core ML เป็น int32 (ชนิดที่ Core ML รับสำหรับ integer input)
         self.kv_cache.positions = position_ids[0].long()
         logits = self.model(
