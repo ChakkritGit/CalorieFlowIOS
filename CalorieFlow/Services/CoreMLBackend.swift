@@ -48,29 +48,31 @@ actor CoreMLBackend {
 
     /// backend ที่ให้ Core ML ใช้
     ///
-    /// เคยเป็น `.all` แล้วแอปแครชบนเครื่องจริงตั้งแต่การเรียกครั้งแรก:
+    /// **ANE รันกราฟนี้ไม่ได้** — `MLModel.load` ล้มตั้งแต่สร้างแผนประมวลผล
+    /// วัดบน iPhone 17 Pro (iOS 26) ด้วยไฟล์โมเดลตัวจริง:
     ///
-    ///     MetalPerformanceShadersGraph ... GPUMemrefOps.mm:608: failed assertion
-    ///     `Failed to resolve dynamic dimension 3 (got -9223372036854775808)'
+    ///     Failed to build the model execution plan using a model architecture
+    ///     file '.../Qwen.mlmodelc/model.mil' with error code: -14
     ///
-    /// ค่านั้นคือ `Int64.min` ซึ่งเป็นค่าที่ใช้แทน "มิติที่ยังไม่ถูกกำหนด" — MPSGraph
-    /// แก้ขนาดของมิติที่ 3 (ความยาว key ที่มาจากการเฉือน cache) ไม่ออก แล้ว assert
-    /// ตายทั้งโปรเซส ไม่ใช่ throw จึง `try?` รับไม่ได้
+    ///     .cpuAndNeuralEngine   -14
+    ///     .all                  -14   (Core ML ไม่ถอยไปใช้ทางอื่นให้)
+    ///     .cpuAndGPU            โหลดผ่านใน 1.7-6.6 วินาที
     ///
-    /// ตัด GPU ออกเพื่อเลี่ยงเส้นทาง MPSGraph ทั้งเส้น — บนแมคเราวัดแล้วว่า `.all`
-    /// กับ `.cpuAndGPU` ให้ผลถูกต้อง ส่วน `.cpuOnly` สร้าง execution plan ไม่ได้เลย
-    /// (error -14) ดังนั้นถ้า ANE รันไหว นี่คือทางที่เหลืออยู่
+    /// เดิมตั้งเป็น `.cpuAndNeuralEngine` เพื่อเลี่ยงเส้นทาง MPSGraph ที่เคย assert
+    /// ตายทั้งโปรเซส (`Failed to resolve dynamic dimension 3`) — แต่นั่นเป็นอาการของ
+    /// กราฟรุ่นเก่าที่ยังมีมิติเปลี่ยนได้ ซึ่งรุ่นปัจจุบันกำจัดทิ้งหมดแล้ว (ดู
+    /// `FixedShapeKeyValueCache` ใน convert.py) เหตุผลเดิมจึงหมดอายุ และการยืนยัน
+    /// ที่ ANE ทำให้โมเดลใช้ไม่ได้เลยบนเครื่องจริง
     ///
-    /// เปิดให้เขียนทับด้วย environment variable ได้ **เพื่อตัวรันทดสอบฝั่งแมคเท่านั้น**
-    /// (`/tmp/qwencheck` เรียกคลาสนี้ตรง ๆ ผ่าน symlink) — ANE บนแมคสร้าง execution
-    /// plan ไม่ได้ ถ้าไม่มีทางเขียนทับก็ทดสอบโค้ดตัวจริงนอกเครื่อง iOS ไม่ได้เลย
-    /// ในแอปไม่มีใครตั้งตัวแปรนี้ ค่าที่ได้จึงเป็น `.cpuAndNeuralEngine` เสมอ
+    /// เปิดให้เขียนทับด้วย environment variable ได้เพื่อการทดสอบ — ทั้ง
+    /// `/tmp/qwencheck` บนแมคและการไล่หาสาเหตุบนเครื่องผ่าน
+    /// `devicectl device process launch --environment-variables` ในแอปไม่มีใครตั้ง
     private static let computeUnits: MLComputeUnits = {
         switch ProcessInfo.processInfo.environment["CALORIEFLOW_COMPUTE_UNITS"] {
         case "all": return .all
-        case "cpuAndGPU": return .cpuAndGPU
+        case "cpuAndNeuralEngine": return .cpuAndNeuralEngine
         case "cpuOnly": return .cpuOnly
-        default: return .cpuAndNeuralEngine
+        default: return .cpuAndGPU
         }
     }()
 
