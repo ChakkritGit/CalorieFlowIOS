@@ -114,7 +114,7 @@ final class ModelDownloader {
     private static let assets = [
         Asset(remoteName: "tokenizer_config.json", localName: "tokenizer_config.json", approximateBytes: 724),
         Asset(remoteName: "tokenizer.json", localName: "tokenizer.json", approximateBytes: 11_421_892),
-        Asset(remoteName: "Qwen-int8.mlpackage.zip", localName: "Qwen-int8.mlpackage.zip", approximateBytes: 1_549_530_496)
+        Asset(remoteName: "Qwen-int8.mlpackage.zip", localName: "Qwen-int8.mlpackage.zip", approximateBytes: 1_553_366_959)
     ]
 
     /// ขนาดรวมที่ต้องโหลด — ใช้โชว์บนปุ่มเท่านั้น
