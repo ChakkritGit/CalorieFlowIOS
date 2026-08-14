@@ -91,6 +91,10 @@ final class AICoach {
         coreMLFailed = false
         coreMLBackend = nil
         chatSession = nil
+        // คำแนะนำที่แคชไว้มาจาก backend ตัวเก่า ต้องทิ้งไปด้วย ไม่งั้นคนที่เพิ่งโหลด
+        // โมเดลเสร็จจะยังเห็นข้อความแบบกฎธรรมดาค้างอยู่จนกว่าจะครบสิบนาที
+        dailyTipCache = nil
+        weeklySummaryCache = nil
         status = Self.currentStatus()
     }
 
@@ -128,13 +132,49 @@ final class AICoach {
         return t.aiUnavailableReason(reason)
     }
 
+    // MARK: - แคชคำแนะนำ
+
+    /// คำแนะนำที่สร้างไว้แล้ว พร้อมเวลาและลายนิ้วมือของข้อมูลที่ใช้สร้าง
+    private struct CachedAdvice {
+        let text: String
+        let madeAt: Date
+        let fingerprint: String
+    }
+
+    /// อายุของคำแนะนำก่อนจะยอมเดินโมเดลใหม่
+    ///
+    /// การ์ดเรียก `generate` ทุกครั้งที่ view ถูกสร้างใหม่ ซึ่งเกิดทุกครั้งที่สลับแท็บ
+    /// การเดินโมเดล 1.5B รอบละหลายวินาทีทุกครั้งที่เปลี่ยนหน้าเป็นราคาที่ไม่คุ้มเลย
+    /// เพราะคำแนะนำแทบไม่เปลี่ยนถ้าข้อมูลยังเท่าเดิม
+    private static let adviceLifetime: TimeInterval = 600
+
+    private var dailyTipCache: CachedAdvice?
+    private var weeklySummaryCache: CachedAdvice?
+
+    /// ใช้ของเก่าได้ไหม — ต้องทั้งยังไม่หมดอายุ *และ* ข้อมูลที่ใช้สร้างยังเหมือนเดิม
+    ///
+    /// ลายนิ้วมือสำคัญพอ ๆ กับเวลา ถ้าดูแค่เวลา คนที่เพิ่งบันทึกอาหารจะเห็นการ์ดยืนยัน
+    /// ว่า "วันนี้ยังไม่ได้บันทึกอะไรเลย" ต่อไปอีกสิบนาที ซึ่งดูเหมือนแอปพัง
+    private func cached(_ entry: CachedAdvice?, matching fingerprint: String) -> String? {
+        guard let entry,
+              entry.fingerprint == fingerprint,
+              Date().timeIntervalSince(entry.madeAt) < Self.adviceLifetime
+        else { return nil }
+        return entry.text
+    }
+
     // MARK: - Daily tip
 
     /// คืนคำแนะนำแบบกฎธรรมดาทันทีเมื่อไม่มีโมเดล จึงไม่มีกรณีที่การ์ดว่างเปล่า
+    ///
+    /// - Parameter force: ข้ามแคช ใช้ตอนผู้ใช้กดปุ่มรีเฟรชเอง
     @MainActor
-    func dailyTip(_ context: AdviceContext, _ t: L10n) async -> String {
+    func dailyTip(_ context: AdviceContext, _ t: L10n, force: Bool = false) async -> String {
         let fallback = RuleBasedAdvisor.dailyTip(context, t)
         guard usesModel else { return fallback }
+
+        let fingerprint = context.dailyFingerprint
+        if !force, let hit = cached(dailyTipCache, matching: fingerprint) { return hit }
 
         let prompt = """
         \(t.aiPromptLanguageRule)
@@ -156,20 +196,25 @@ final class AICoach {
         //
         // (เดิมคอมเมนต์ตรงนี้เขียนว่าต้องคูณสองเพราะแทรกการเรียกคั่นทุกก้าว —
         // กราฟรุ่นใหม่ไม่มีมิติที่เปลี่ยนได้แล้วจึงไม่ต้องแทรก ค่าปรับนั้นหายไป)
-        return await respond(
+        let text = await respond(
             to: prompt,
             instructions: t.aiSystemInstructions,
             fallback: fallback,
             maxNewTokens: 70
         )
+        dailyTipCache = CachedAdvice(text: text, madeAt: Date(), fingerprint: fingerprint)
+        return text
     }
 
     // MARK: - Weekly summary
 
     @MainActor
-    func weeklySummary(_ context: AdviceContext, _ t: L10n) async -> String {
+    func weeklySummary(_ context: AdviceContext, _ t: L10n, force: Bool = false) async -> String {
         let fallback = RuleBasedAdvisor.weeklySummary(context, t)
         guard usesModel else { return fallback }
+
+        let fingerprint = context.weeklyFingerprint
+        if !force, let hit = cached(weeklySummaryCache, matching: fingerprint) { return hit }
 
         let prompt = """
         \(t.aiPromptLanguageRule)
@@ -184,12 +229,14 @@ final class AICoach {
         \(t.aiPromptWeeklyTask)
         """
 
-        return await respond(
+        let text = await respond(
             to: prompt,
             instructions: t.aiSystemInstructions,
             fallback: fallback,
             maxNewTokens: 90
         )
+        weeklySummaryCache = CachedAdvice(text: text, madeAt: Date(), fingerprint: fingerprint)
+        return text
     }
 
     // MARK: - Calorie estimate

@@ -165,6 +165,7 @@ actor CoreMLBackend {
         }
 
 
+        let prefillDone = Date()
         var generated: [Int] = []
         var stoppedOnItsOwn = false
 
@@ -187,6 +188,15 @@ actor CoreMLBackend {
             logits = try predict(tokens: [next], pastLength: past, state: state)
             past += 1
         }
+
+        // วัดแยก prefill กับ decode เพราะสองขั้นนี้คนละราคากันคนละเรื่อง — prefill
+        // ป้อนทีละ 128 token ส่วน decode เดินโมเดลหนึ่งรอบต่อหนึ่ง token
+        let decodeSeconds = Date().timeIntervalSince(prefillDone)
+        let rate = decodeSeconds > 0 ? Double(generated.count) / decodeSeconds : 0
+        aiLog.info("""
+            สร้าง \(generated.count) token ใน \(decodeSeconds, format: .fixed(precision: 1)) วินาที \
+            (\(rate, format: .fixed(precision: 1)) tok/s) prompt \(tokens.count) token
+            """)
 
         let answer = tokenizer.decode(tokens: generated)
             .trimmingCharacters(in: .whitespacesAndNewlines)

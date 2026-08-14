@@ -15,7 +15,7 @@ struct StatsView: View {
                 title: t.aiWeeklyTitle,
                 icon: "chart.line.text.clipboard",
                 accent: Palette.blue,
-                generate: { await coach.weeklySummary(store.adviceContext, t) }
+                generate: { force in await coach.weeklySummary(store.adviceContext, t, force: force) }
             )
 
             chartCard(

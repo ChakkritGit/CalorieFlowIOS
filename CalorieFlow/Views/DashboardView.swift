@@ -44,7 +44,7 @@ struct DashboardView: View {
             title: t.aiCardTitle,
             icon: "sparkles",
             accent: Palette.purple,
-            generate: { await coach.dailyTip(store.adviceContext, t) },
+            generate: { force in await coach.dailyTip(store.adviceContext, t, force: force) },
             onOpenChat: { showChat = true }
         )
     }

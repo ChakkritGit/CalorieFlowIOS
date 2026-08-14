@@ -27,6 +27,18 @@ struct AdviceContext {
     /// จำนวนวันใน 7 วันล่าสุดที่มีการบันทึกอาหาร
     var activeDaysThisWeek: Int { weeklyCalories.filter { $0 > 0 }.count }
 
+    /// ลายนิ้วมือของข้อมูลที่คำแนะนำรายวันใช้ — เปลี่ยนเมื่อไหร่ค่อยเดินโมเดลใหม่
+    ///
+    /// ใส่เฉพาะฟิลด์ที่อยู่ใน prompt จริง ๆ ถ้าใส่ฟิลด์ที่ไม่ได้ใช้ลงไปด้วย
+    /// แคชจะพังโดยที่คำแนะนำไม่มีทางเปลี่ยน
+    var dailyFingerprint: String {
+        "\(goal)|\(target)|\(consumed)|\(water)|\(waterGoal)|\(streak)|\(todayFoods.joined(separator: ","))"
+    }
+
+    var weeklyFingerprint: String {
+        "\(goal)|\(target)|\(waterGoal)|\(weeklyCalories)|\(weeklyWater)"
+    }
+
     /// จำนวนวันที่กินเกินเป้าใน 7 วันล่าสุด (นับเฉพาะวันที่มีบันทึก)
     var daysOverTargetThisWeek: Int { weeklyCalories.filter { $0 > target }.count }
 }

@@ -9,7 +9,11 @@ struct CoachCard: View {
     let icon: String
     let accent: Color
     /// ตัวสร้างข้อความ — ผู้เรียกเลือกว่าเป็นคำแนะนำรายวันหรือสรุปรายสัปดาห์
-    let generate: () async -> String
+    ///
+    /// พารามิเตอร์คือ "บังคับสร้างใหม่" ซึ่งเป็นจริงเฉพาะตอนผู้ใช้กดปุ่มรีเฟรชเอง
+    /// นอกนั้น `AICoach` มีสิทธิ์คืนของที่แคชไว้ — `.task` ด้านล่างทำงานทุกครั้งที่
+    /// view ถูกสร้างใหม่ (สลับแท็บก็นับ) ถ้าไม่แคช โมเดลจะถูกเดินใหม่ทุกครั้งที่เปลี่ยนหน้า
+    let generate: (Bool) async -> String
     var onOpenChat: (() -> Void)?
 
     @Environment(AICoach.self) private var coach
@@ -18,6 +22,7 @@ struct CoachCard: View {
     @State private var text = ""
     @State private var isLoading = false
     @State private var generation = 0
+    @State private var isForced = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -77,12 +82,16 @@ struct CoachCard: View {
 
     private func reload() {
         text = ""
+        isForced = true
         generation += 1
     }
 
     private func load() async {
+        // ของที่แคชไว้คืนกลับมาทันที การโชว์ตัวหมุนในกรณีนั้นทำให้การ์ดกะพริบเปล่า ๆ
+        let force = isForced
+        isForced = false
         isLoading = true
-        text = await generate()
+        text = await generate(force)
         isLoading = false
     }
 }
