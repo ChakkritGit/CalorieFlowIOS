@@ -217,7 +217,7 @@ struct ModelDownloadView: View {
                 .foregroundStyle(ink)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 14)
-                .background(tint, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .background(tint, in: RoundedRectangle(cornerRadius: Metrics.controlCorner, style: .continuous))
         }
         .buttonStyle(.plain)
     }

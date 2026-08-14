@@ -71,7 +71,7 @@ struct CoachCard: View {
                         .foregroundStyle(accent)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
-                        .background(accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .background(accent.opacity(0.12), in: RoundedRectangle(cornerRadius: Metrics.controlCorner, style: .continuous))
                 }
                 .buttonStyle(.plain)
             }

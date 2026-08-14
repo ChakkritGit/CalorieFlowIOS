@@ -77,12 +77,21 @@ private struct TabBar: View {
         }
         .padding(.top, 12)
         .padding(.horizontal, 8)
+        // วัสดุโปร่งแสงแทนพื้นทึบ + เงา — เนื้อหาที่เลื่อนลอดใต้แถบจะเบลอผ่านมาแทนที่จะ
+        // หายวับ ซึ่งบอกผู้ใช้ว่ายังเลื่อนต่อได้ และเป็นภาษาเดียวกับแถบของระบบ
         .background(
-            Palette.card
-                .shadow(color: .black.opacity(0.08), radius: 20, y: -10)
-                .ignoresSafeArea(edges: .bottom)
+            .bar,
+            in: Rectangle()
         )
-        .overlay(alignment: .top) { Rectangle().fill(Palette.border).frame(height: 1) }
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(Palette.border)
+                .frame(height: 0.5)
+        }
+        .background(alignment: .bottom) {
+            // ต่อวัสดุลงไปคลุม home indicator ด้วย ไม่งั้นจะเห็นพื้นหลังโผล่เป็นแถบ
+            Rectangle().fill(.bar).ignoresSafeArea(edges: .bottom)
+        }
     }
 
     private func item(_ target: AppTab, icon: String, label: String) -> some View {

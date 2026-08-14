@@ -7,13 +7,16 @@ import UIKit
 /// เพราะสีจะถูก resolve ตาม trait ของแต่ละ view เอง รวมถึงตอน `ImageRenderer`
 /// เรนเดอร์การ์ดแชร์ด้วย
 enum Palette {
-    static let background = adaptive(light: 0xF8FAFC, dark: 0x0B1120)
-    static let card = adaptive(light: 0xFFFFFF, dark: 0x1B263B)
-    static let border = adaptive(light: 0xF1F5F9, dark: 0x2C3A52)
+    // พื้นหลังกับการ์ดถูกดึงให้เป็นกลางขึ้นและห่างกันน้อยลง — โทนน้ำเงินอมเทาเดิม
+    // (0x0B1120 / 0x1B263B) อ่านเป็น "ธีมสีน้ำเงิน" มากกว่า "ธีมมืด" และคอนทราสต์
+    // ระหว่างสองชั้นที่แรงเกินทำให้ทุกการ์ดลอยเด่นเท่ากันหมด จนไม่มีลำดับความสำคัญ
+    static let background = adaptive(light: 0xF7F8FA, dark: 0x0A0D14)
+    static let card = adaptive(light: 0xFFFFFF, dark: 0x141924)
+    static let border = adaptive(light: 0xE9ECF1, dark: 0x212837)
 
-    static let ink = adaptive(light: 0x1E293B, dark: 0xF1F5F9)
-    static let inkSoft = adaptive(light: 0x64748B, dark: 0xA0AEC0)
-    static let inkFaint = adaptive(light: 0x94A3B8, dark: 0x7A8AA3)
+    static let ink = adaptive(light: 0x161B22, dark: 0xF3F5F7)
+    static let inkSoft = adaptive(light: 0x5B6675, dark: 0x9AA5B4)
+    static let inkFaint = adaptive(light: 0x8E99A8, dark: 0x6B7688)
 
     static let green = adaptive(light: 0x22C55E, dark: 0x34D399)
     static let greenDeep = adaptive(light: 0x16A34A, dark: 0x4ADE80)
@@ -27,11 +30,31 @@ enum Palette {
     static let orange = adaptive(light: 0xFB923C, dark: 0xFDBA74)
     static let purple = adaptive(light: 0x9333EA, dark: 0xC084FC)
     static let pink = adaptive(light: 0xEC4899, dark: 0xF472B6)
-    static let track = adaptive(light: 0xE5E7EB, dark: 0x334155)
+    static let track = adaptive(light: 0xE8EBF0, dark: 0x252D3C)
+
+    /// เงาของการ์ด — **โปร่งใสสนิทในธีมมืด** โดยตั้งใจ
+    ///
+    /// เงาบนพื้นมืดไม่ได้อ่านเป็นความสูง แต่กลายเป็นคราบดำรอบการ์ดที่ทำให้ขอบดูเลอะ
+    /// ธีมมืดจึงแยกชั้นด้วยความสว่างของพื้นผิวกับเส้นขอบแทน ซึ่งเป็นวิธีที่ระบบเองใช้
+    static let cardShadow = adaptive(
+        light: 0x0F172A, lightAlpha: 0.05,
+        dark: 0x000000, darkAlpha: 0
+    )
 
     private static func adaptive(light: UInt32, dark: UInt32) -> Color {
         Color(uiColor: UIColor { trait in
             UIColor(rgb: trait.userInterfaceStyle == .dark ? dark : light)
+        })
+    }
+
+    private static func adaptive(
+        light: UInt32, lightAlpha: CGFloat,
+        dark: UInt32, darkAlpha: CGFloat
+    ) -> Color {
+        Color(uiColor: UIColor { trait in
+            let isDark = trait.userInterfaceStyle == .dark
+            return UIColor(rgb: isDark ? dark : light)
+                .withAlphaComponent(isDark ? darkAlpha : lightAlpha)
         })
     }
 }
@@ -60,19 +83,31 @@ extension UIColor {
 
 /// การ์ดมุมมนพร้อมเงาบาง — ใช้ซ้ำทุกหน้า (เทียบเท่า `bg-white rounded-3xl shadow-sm`)
 struct CardModifier: ViewModifier {
-    var padding: CGFloat = 24
+    var padding: CGFloat = 20
 
     func body(content: Content) -> some View {
         content
             .padding(padding)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Palette.card, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+            .background(Palette.card, in: RoundedRectangle(cornerRadius: Metrics.cardCorner, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                RoundedRectangle(cornerRadius: Metrics.cardCorner, style: .continuous)
                     .strokeBorder(Palette.border, lineWidth: 1)
             )
-            .shadow(color: .black.opacity(0.05), radius: 8, y: 2)
+            // เงาต่ำและใกล้ตัวกว่าเดิม (เดิม radius 8 / y 2 ที่ดำ 5%) การ์ดจึงดูวางอยู่
+            // บนพื้น ไม่ใช่ลอยอยู่เหนือพื้น ซึ่งเป็นภาษาที่ระบบใช้อยู่ตอนนี้
+            .shadow(color: Palette.cardShadow, radius: 12, y: 4)
     }
+}
+
+/// จังหวะการวางที่ใช้ร่วมกันทั้งแอป — รัศมีมุมไล่ลดหลั่นตามขนาดของสิ่งที่มันครอบ
+///
+/// มุมเดียวใช้ทุกที่ทำให้ปุ่มเล็ก ๆ ดูบวมและการ์ดใหญ่ดูเหลี่ยม ค่าชุดนี้ไล่จาก
+/// การ์ด → ตัวควบคุม → ชิป เพื่อให้ของที่ซ้อนกันอยู่ดูเข้าพวกกัน
+enum Metrics {
+    static let cardCorner: CGFloat = 22
+    static let controlCorner: CGFloat = 14
+    static let chipCorner: CGFloat = 10
 }
 
 /// สั่งปิดคีย์บอร์ดโดยไม่ผ่าน `@FocusState`
@@ -86,16 +121,16 @@ func hideKeyboard() {
 }
 
 extension View {
-    func cardStyle(padding: CGFloat = 24) -> some View {
+    func cardStyle(padding: CGFloat = 20) -> some View {
         modifier(CardModifier(padding: padding))
     }
 
     /// ช่องกรอกข้อมูลสไตล์เดียวกับเวอร์ชันเว็บ (`bg-slate-50 rounded-xl`)
     func inputFieldStyle() -> some View {
-        padding(16)
-            .background(Palette.background, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        padding(14)
+            .background(Palette.background, in: RoundedRectangle(cornerRadius: Metrics.controlCorner, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                RoundedRectangle(cornerRadius: Metrics.controlCorner, style: .continuous)
                     .strokeBorder(Palette.border, lineWidth: 1)
             )
     }

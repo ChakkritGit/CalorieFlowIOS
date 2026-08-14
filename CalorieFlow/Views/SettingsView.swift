@@ -89,7 +89,7 @@ private struct SettingsCategoryRow: View {
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(tint)
                 .frame(width: 44, height: 44)
-                .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: Metrics.controlCorner, style: .continuous))
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)

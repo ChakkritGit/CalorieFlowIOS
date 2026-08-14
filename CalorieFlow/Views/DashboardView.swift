@@ -71,7 +71,7 @@ struct DashboardView: View {
             .background(
                 LinearGradient(colors: [Color(hex: 0x9333EA), Color(hex: 0xEC4899)],
                                startPoint: .leading, endPoint: .trailing),
-                in: RoundedRectangle(cornerRadius: 28, style: .continuous)
+                in: RoundedRectangle(cornerRadius: Metrics.cardCorner, style: .continuous)
             )
         }
         .buttonStyle(.plain)
@@ -108,7 +108,7 @@ struct DashboardView: View {
         .background(
             LinearGradient(colors: [Color(hex: 0xFB923C), Color(hex: 0xEF4444)],
                            startPoint: .topLeading, endPoint: .bottomTrailing),
-            in: RoundedRectangle(cornerRadius: 28, style: .continuous)
+            in: RoundedRectangle(cornerRadius: Metrics.cardCorner, style: .continuous)
         )
     }
 
@@ -222,7 +222,7 @@ struct DashboardView: View {
                     Image(systemName: "drop.fill")
                         .foregroundStyle(Palette.blue)
                         .padding(8)
-                        .background(Palette.blueSoft, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .background(Palette.blueSoft, in: RoundedRectangle(cornerRadius: Metrics.chipCorner, style: .continuous))
                 }
                 Spacer()
                 Text(t.waterGoalShort(store.user.waterGoal))
@@ -252,9 +252,9 @@ struct DashboardView: View {
                     .focused($waterFieldFocused)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
-                    .background(Palette.background, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .background(Palette.background, in: RoundedRectangle(cornerRadius: Metrics.controlCorner, style: .continuous))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        RoundedRectangle(cornerRadius: Metrics.controlCorner, style: .continuous)
                             .strokeBorder(Palette.border, lineWidth: 1)
                     )
 
@@ -269,7 +269,7 @@ struct DashboardView: View {
                 .foregroundStyle(Palette.card)
                 .padding(.horizontal, 18)
                 .padding(.vertical, 12)
-                .background(Palette.ink, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .background(Palette.ink, in: RoundedRectangle(cornerRadius: Metrics.controlCorner, style: .continuous))
             }
         }
         .cardStyle()
@@ -284,7 +284,7 @@ struct DashboardView: View {
                 .foregroundStyle(Palette.blueDeep)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
-                .background(Palette.blueSoft, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .background(Palette.blueSoft, in: RoundedRectangle(cornerRadius: Metrics.controlCorner, style: .continuous))
         }
         .buttonStyle(.plain)
     }

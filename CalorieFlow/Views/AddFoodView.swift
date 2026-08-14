@@ -76,7 +76,7 @@ struct AddFoodView: View {
                         .padding(.vertical, 16)
                         .background(
                             canSave ? Palette.green : Palette.track,
-                            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            in: RoundedRectangle(cornerRadius: Metrics.controlCorner, style: .continuous)
                         )
                         .shadow(color: canSave ? Palette.green.opacity(0.3) : .clear, radius: 12, y: 6)
                 }
