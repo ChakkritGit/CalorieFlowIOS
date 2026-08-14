@@ -169,7 +169,21 @@ struct L10n {
     var sectionAppearance: String { s("การแสดงผล", "APPEARANCE") }
     var sectionData: String { s("ข้อมูล", "DATA") }
 
+    /// หน่วยแยกออกมาจากป้ายชื่อ เพราะตอนนี้ไปแสดงอยู่ในช่องกรอกแทน
+    var unitCm: String { s("ซม.", "cm") }
+    var unitYears: String { s("ปี", "yrs") }
+    var unitKg: String { s("กก.", "kg") }
+    var unitMl: String { s("มล.", "ml") }
+
+    var profileBasicsTitle: String { s("ข้อมูลพื้นฐาน", "Basic info") }
+    var caloriesSectionTitle: String { s("แคลอรี่ต่อวัน", "Daily calories") }
+    var waterSectionTitle: String { s("การดื่มน้ำ", "Hydration") }
+    var dailyGoalRowLabel: String { s("เป้าหมายต่อวัน", "Daily goal") }
+    var manualCaloriesRowLabel: String { s("กำหนดเอง", "Custom target") }
+
     var nameLabel: String { s("ชื่อ", "Name") }
+    var heightRowLabel: String { s("ส่วนสูง", "Height") }
+    var ageRowLabel: String { s("อายุ", "Age") }
     var genderLabel: String { s("เพศ", "Gender") }
     var male: String { s("ชาย", "Male") }
     var female: String { s("หญิง", "Female") }
@@ -204,6 +218,7 @@ struct L10n {
         s("ปริมาณที่แนะนำคือประมาณ 2000 - 3000 มล. ต่อวัน", "2000 - 3000 ml per day is typical")
     }
 
+    var displaySectionTitle: String { s("ธีมและภาษา", "Theme & language") }
     var themeLabel: String { s("ธีม", "Theme") }
     var languageLabel: String { s("ภาษา", "Language") }
 
@@ -317,6 +332,7 @@ struct L10n {
         s("ประมาณค่าไม่ได้ ลองกรอกเอง", "Couldn't estimate — please enter it manually")
     }
 
+    var enabledLabel: String { s("เปิดใช้งาน", "Enabled") }
     var aiSettingsLabel: String { s("คำแนะนำจาก AI", "AI suggestions") }
     var aiSettingsHint: String {
         s("ประมวลผลในเครื่องทั้งหมด ข้อมูลของคุณไม่ถูกส่งออกไปไหน",

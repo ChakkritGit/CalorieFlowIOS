@@ -101,6 +101,155 @@ extension View {
     }
 }
 
+// MARK: - ชิ้นส่วนของหน้าตั้งค่า
+
+/// การ์ดหนึ่งหมวดในหน้าตั้งค่า — หัวข้อ + แถวที่คั่นด้วยเส้นบาง + หมายเหตุท้ายการ์ด
+///
+/// เดิมแต่ละการ์ดจัดเองด้วย `VStack` ทำให้ระยะห่างและความสูงของแถวไม่ตรงกันสักหน้า
+/// รวมมาไว้ที่เดียวเพื่อให้ทั้งสี่หน้าเดินจังหวะเดียวกัน และเวลาปรับก็ปรับที่เดียว
+///
+/// ใช้ `cardStyle(padding: 0)` เพราะเส้นคั่นต้องลากออกไปจนสุดขอบการ์ด
+/// ระยะขอบจึงต้องเป็นของแต่ละแถว ไม่ใช่ของการ์ด
+struct SettingsCard<Content: View>: View {
+    var icon: String?
+    var tint: Color = Palette.inkSoft
+    var title: String?
+    var footnote: String?
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if let title {
+                HStack(spacing: 10) {
+                    if let icon {
+                        Image(systemName: icon)
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(tint)
+                            .frame(width: 26, height: 26)
+                            .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    }
+                    Text(title)
+                        .font(.footnote.weight(.bold))
+                        .tracking(0.4)
+                        .foregroundStyle(Palette.ink)
+                }
+                .padding(.horizontal, SettingsMetrics.inset)
+                .padding(.top, 18)
+                .padding(.bottom, 10)
+            }
+
+            content()
+                .padding(.top, title == nil ? 6 : 0)
+
+            if let footnote {
+                Text(footnote)
+                    .font(.caption2)
+                    .foregroundStyle(Palette.inkFaint)
+                    .padding(.horizontal, SettingsMetrics.inset)
+                    .padding(.top, 12)
+            }
+        }
+        .padding(.bottom, 16)
+        .cardStyle(padding: 0)
+    }
+}
+
+/// ค่าคงที่ของจังหวะการวางหน้าตั้งค่า — แก้ที่นี่ที่เดียวแล้วขยับพร้อมกันทุกหน้า
+enum SettingsMetrics {
+    static let inset: CGFloat = 20
+    static let rowHeight: CGFloat = 52
+    static let controlHeight: CGFloat = 44
+    static let corner: CGFloat = 12
+}
+
+/// แถวแบบป้ายซ้าย-ตัวควบคุมขวา สำหรับค่าที่สั้นพอจะอยู่บรรทัดเดียวกันได้
+struct SettingsRow<Trailing: View>: View {
+    let label: String
+    var hint: String?
+    @ViewBuilder var trailing: () -> Trailing
+
+    var body: some View {
+        HStack(spacing: 16) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(label)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(Palette.ink)
+                if let hint {
+                    Text(hint)
+                        .font(.caption2)
+                        .foregroundStyle(Palette.inkFaint)
+                }
+            }
+            Spacer(minLength: 8)
+            trailing()
+        }
+        .padding(.horizontal, SettingsMetrics.inset)
+        .frame(minHeight: SettingsMetrics.rowHeight)
+    }
+}
+
+/// แถวที่ตัวควบคุมกว้างเต็มแถว (ปุ่มเลือกหลายตัว, segmented, เมนู) ป้ายจึงต้องอยู่บรรทัดบน
+struct SettingsStackRow<Content: View>: View {
+    /// เว้นว่างได้เมื่อหัวข้อการ์ดบอกอยู่แล้วว่าตัวควบคุมนี้คืออะไร จะได้ไม่อ่านซ้ำสองรอบ
+    var label: String?
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let label {
+                Text(label)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(Palette.ink)
+            }
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, SettingsMetrics.inset)
+        .padding(.vertical, 14)
+    }
+}
+
+/// เส้นคั่นระหว่างแถว — เยื้องซ้ายเท่าป้าย ให้สายตาไล่ตามคอลัมน์ข้อความได้
+struct SettingsSeparator: View {
+    var body: some View {
+        Rectangle()
+            .fill(Palette.border)
+            .frame(height: 1)
+            .padding(.leading, SettingsMetrics.inset)
+    }
+}
+
+/// กรอบของช่องกรอกในแถวตั้งค่า — เตี้ยและแคบกว่า `inputFieldStyle()` เพราะอยู่คู่กับป้าย
+/// ไม่ได้กินทั้งบรรทัด และมีที่ว่างขวาไว้บอกหน่วย จะได้ไม่ต้องยัดหน่วยไปไว้ในป้าย
+struct SettingsFieldBox<Field: View>: View {
+    var unit: String?
+    var width: CGFloat? = 132
+    var tint: Color = Palette.ink
+    @ViewBuilder var field: () -> Field
+
+    var body: some View {
+        HStack(spacing: 5) {
+            field()
+                .multilineTextAlignment(.trailing)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(tint)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+            if let unit {
+                Text(unit)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(Palette.inkFaint)
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(width: width, height: SettingsMetrics.controlHeight)
+        .background(Palette.background, in: RoundedRectangle(cornerRadius: SettingsMetrics.corner, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: SettingsMetrics.corner, style: .continuous)
+                .strokeBorder(Palette.border, lineWidth: 1)
+        )
+    }
+}
+
 /// หัวข้อหมวดหมู่ในหน้าตั้งค่า
 struct SectionHeader: View {
     let title: String
