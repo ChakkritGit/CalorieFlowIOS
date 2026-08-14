@@ -38,6 +38,14 @@ actor CoreMLBackend {
     private let tokenizer: Tokenizer
     private let endOfTurn: Int
 
+    /// id ต่ำสุดของ control token — ตั้งแต่ตัวนี้ขึ้นไปคือ token ที่ไม่ใช่ข้อความ
+    ///
+    /// ใน `tokenizer.json` ของ Qwen2.5 vocab ปกติจบที่ 151642 ส่วน added token
+    /// ทั้ง 22 ตัวเรียงติดกันตั้งแต่ 151643 (`<|endoftext|>`, `<|im_start|>`,
+    /// `<|im_end|>`, `<tool_call>`, `<|fim_prefix|>`, ...) จึงเทียบด้วยเลขเดียวพอ
+    /// ไม่ต้องไล่เช็กทีละตัว
+    private let firstControlToken: Int
+
     /// backend ที่ให้ Core ML ใช้
     ///
     /// เคยเป็น `.all` แล้วแอปแครชบนเครื่องจริงตั้งแต่การเรียกครั้งแรก:
@@ -52,7 +60,19 @@ actor CoreMLBackend {
     /// ตัด GPU ออกเพื่อเลี่ยงเส้นทาง MPSGraph ทั้งเส้น — บนแมคเราวัดแล้วว่า `.all`
     /// กับ `.cpuAndGPU` ให้ผลถูกต้อง ส่วน `.cpuOnly` สร้าง execution plan ไม่ได้เลย
     /// (error -14) ดังนั้นถ้า ANE รันไหว นี่คือทางที่เหลืออยู่
-    private static let computeUnits: MLComputeUnits = .cpuAndNeuralEngine
+    ///
+    /// เปิดให้เขียนทับด้วย environment variable ได้ **เพื่อตัวรันทดสอบฝั่งแมคเท่านั้น**
+    /// (`/tmp/qwencheck` เรียกคลาสนี้ตรง ๆ ผ่าน symlink) — ANE บนแมคสร้าง execution
+    /// plan ไม่ได้ ถ้าไม่มีทางเขียนทับก็ทดสอบโค้ดตัวจริงนอกเครื่อง iOS ไม่ได้เลย
+    /// ในแอปไม่มีใครตั้งตัวแปรนี้ ค่าที่ได้จึงเป็น `.cpuAndNeuralEngine` เสมอ
+    private static let computeUnits: MLComputeUnits = {
+        switch ProcessInfo.processInfo.environment["CALORIEFLOW_COMPUTE_UNITS"] {
+        case "all": return .all
+        case "cpuAndGPU": return .cpuAndGPU
+        case "cpuOnly": return .cpuOnly
+        default: return .cpuAndNeuralEngine
+        }
+    }()
 
     init() async throws {
         guard let modelURL = ModelStore.compiledModelURL,
@@ -79,6 +99,7 @@ actor CoreMLBackend {
             tokenizerData: try Self.config(at: tokenizerFolder, named: "tokenizer.json")
         )
         endOfTurn = tokenizer.convertTokenToId("<|im_end|>") ?? 151645
+        firstControlToken = tokenizer.convertTokenToId("<|endoftext|>") ?? 151643
     }
 
     private static func config(at folder: URL, named name: String) throws -> Config {
@@ -141,7 +162,10 @@ actor CoreMLBackend {
 
         for _ in 0..<maxNewTokens {
             let next = sample(from: logits)
-            if next == endOfTurn || next == tokenizer.eosTokenId {
+            // หยุดที่ control token **ทุกตัว** ไม่ใช่แค่ `<|im_end|>` กับ eos —
+            // sampling หยิบตัวอื่นในช่วงนั้นได้จริง แล้ว `decode` ก็พ่นออกมาเป็น
+            // ตัวอักษรตรง ๆ (เจอมาแล้ว: คำตอบขึ้นต้นด้วย `<|im_start|>ควร`)
+            if next >= firstControlToken {
                 break
             }
             generated.append(next)
