@@ -310,8 +310,6 @@ class FixedShapeKeyValueCache(Cache):
         self.v[layer_idx].index_copy_(2, self.positions, v_state)
         return self.k[layer_idx], self.v[layer_idx]
 
-    # ค่าพวกนี้ถูกใช้แค่คำนวณ `kv_seq_len` ซึ่งส่งต่อไปให้ rotary_emb ตัดตาราง
-    # แต่เราแพตช์ให้ rotary คืนทั้งตารางแล้ว ค่าจึงไม่มีผลกับผลลัพธ์
     def get_seq_length(self, layer_idx=0):
         return 0
 
@@ -320,6 +318,18 @@ class FixedShapeKeyValueCache(Cache):
 
     def get_max_cache_shape(self):
         return self.max_context
+
+    # attention คำนวณ `kv_seq_len = key_states.shape[-2] + get_usable_length(...)`
+    # โดยดูจาก cache *ก่อน* อัปเดต แล้วเอาไปตรวจว่า attn_weights ขนาดถูกไหม
+    #
+    # เราคืน cache ทั้งก้อนเสมอ ความยาว key จึงเป็น max_context ไม่ใช่ความยาวก้อนที่
+    # ป้อนเข้ามา ถ้าไม่บอกตรงนี้จะตกการตรวจทันที:
+    #   Attention weights should be of size (1, 12, 128, 128), but is (1, 12, 128, 2304)
+    #
+    # และค่านี้ยังเป็นตัวที่ attention ใช้ตรวจขนาด mask ด้วย ซึ่ง mask ของเราก็กว้าง
+    # max_context เต็มเสมอ จึงตรงกันพอดีทั้งสองจุด
+    def get_usable_length(self, new_seq_length, layer_idx=0):
+        return self.max_context - new_seq_length
 
 
 # ── RMSNorm: เคยแก้ด้วยการขยับสเกลแล้วแย่ลง ────────────────────────────────
