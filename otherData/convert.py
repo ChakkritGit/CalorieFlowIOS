@@ -5,8 +5,8 @@
 1. **stateful KV cache** — cache เก็บเป็น Core ML state (`ct.StateType`) โมเดลจำ
    token ที่ผ่านมาได้เอง แต่ละรอบ generate จึงป้อนแค่ token ใหม่ตัวเดียว
    ไม่ใช่ป้อนทั้ง sequence ซ้ำ
-2. **ความยาว input ยืดหยุ่น** (`RangeDim`) — prefill ป้อนเป็นก้อนละไม่เกิน
-   PREFILL_CHUNK แล้ว decode ป้อนทีละ 1 token
+2. **รูปร่างตายตัวสองแบบ** (`EnumeratedShapes`) — prefill ก้อนละ PREFILL_CHUNK
+   decode ทีละ 1 token ไม่มีมิติที่เปลี่ยนได้เลย
 3. **quantize 4-bit** — 3.1 GB → ~0.89 GB ระดับที่ iPhone โหลดไหว
 
 รันบน Colab (CPU runtime ก็พอ) การติดตั้งต้องแยกเป็นสามเซลล์ ห้ามยัดรวมบรรทัดเดียว:
@@ -41,32 +41,38 @@ runtime อันหลังคือ state ถูกอ้างถึงห�
 
 ── สัญญาการเรียกใช้ฝั่ง Swift ──────────────────────────────────────────────
 
-    input_ids    (1, q)           int32    q อยู่ในช่วง 1..PREFILL_CHUNK
-    causal_mask  (1, 1, q, ctx)   fp16     ctx อยู่ในช่วง 1..MAX_CONTEXT
-    logits       (1, 1, 151936)   fp16     เฉพาะตำแหน่งสุดท้ายเท่านั้น
-    keyCache / valueCache         state    ผูกกับ MLState ไม่ต้องส่งเข้า-ออกเอง
+    input_ids    (1, q)              int32    q เป็น 1 หรือ PREFILL_CHUNK เท่านั้น
+    causal_mask  (1, 1, q, 2304)     fp16     กว้างเต็มเสมอ ไม่ว่าบริบทจะสั้นแค่ไหน
+    position_ids (1, q)              int32    ตำแหน่งจริงของแต่ละ token
+    logits       (1, 1, 151936)      fp16     เฉพาะตำแหน่งสุดท้าย
+    keyCache / valueCache            state    ผูกกับ MLState ไม่ต้องส่งเข้า-ออกเอง
 
-โมเดลอนุมาน "จำนวน token ที่อยู่ใน cache แล้ว" จาก `ctx - q` ไม่ได้รับเป็น input
-ดังนั้น mask ต้องกว้างเท่ากับจำนวน token ทั้งหมดที่มองเห็นได้ ไม่ใช่แค่ก้อนปัจจุบัน
+**ไม่มีมิติที่เปลี่ยนได้เลย** — มีแค่สองรูปที่เป็นไปได้ และบอก Core ML ไปตรง ๆ ผ่าน
+`EnumeratedShapes` โมเดลจึงไม่ต้องคำนวณขนาดอะไรเองตอนรัน ซึ่งเป็นจุดที่พังมาแล้ว
+สองแบบ (ดู FixedShapeKeyValueCache)
 
-prefill เป็นก้อน:
+`position_ids` เป็นทั้งตำแหน่งของ RoPE และดัชนีที่จะเขียนลง cache — ค่าเดียวกัน
+ทั้งสองงาน จึงไม่มีทางเพี้ยนจากกัน
 
-    past = 0
-    for chunk in promptTokens.chunked(into: PREFILL_CHUNK) {
-        ctx = past + chunk.count
-        // mask (1, 1, chunk.count, ctx) — แถว i คอลัมน์ j
-        //   j <= past + i  ->  0
-        //   นอกนั้น        ->  -65504 (ค่าต่ำสุดของ fp16)
-        // คอลัมน์ 0..<past เป็นของ token เก่าใน cache เปิดหมดทุกแถว
-        // ที่ต้อง mask มีแค่สามเหลี่ยมบนภายในก้อนปัจจุบัน
-        predict(chunk, mask, state)
+prefill เป็นก้อนละ PREFILL_CHUNK:
+
+    var past = 0
+    for chunk in prompt.chunked(into: PREFILL_CHUNK) {
+        // ก้อนสุดท้ายมักสั้นกว่า 128 ต้องเติมให้เต็มแล้วปิดส่วนที่เติมด้วย mask
+        let padded = chunk + Array(repeating: 0, count: PREFILL_CHUNK - chunk.count)
+        let positions = (0..<PREFILL_CHUNK).map { past + $0 }
+        // mask (1, 1, 128, 2304) — แถว i คอลัมน์ j
+        //   เปิด (0) เมื่อ j <= past + i **และ** i < chunk.count
+        //   นอกนั้นปิด (-65504)
+        predict(padded, mask, positions, state)
         past += chunk.count
     }
 
-decode ทีละ token: q = 1, ctx = past + 1, mask เป็นศูนย์ทั้งแถว (มองเห็นได้หมด)
+decode: q = 1, positions = [past], mask แถวเดียวเปิดคอลัมน์ 0...past ที่เหลือปิด
 
-ถ้า system prompt ยาวและใช้ซ้ำทุกเทิร์น ให้ prefill ครั้งเดียวแล้วถือ MLState
-ตัวเดิมไว้ อย่าสร้างใหม่ทุกข้อความ — นั่นคือเหตุผลทั้งหมดที่ทำ stateful
+**ห้ามแทรกการเรียกรูปร่างอื่นคั่นอีกแล้ว** — วิธีนั้นมีไว้แก้ปัญหา specialization
+ค้างของกราฟรุ่นเก่า พอไม่มีมิติที่เปลี่ยนได้ ปัญหานั้นก็หายไป การแทรกจะเหลือแค่
+ทำให้ช้าเป็นสองเท่าเปล่า ๆ
 
 ── กับดักที่เสียเวลาไปแล้วรอบละครั้ง ───────────────────────────────────────
 
@@ -250,7 +256,8 @@ HEAD_DIM = 128
 # ของที่ trace ไว้ก่อนแพตช์ใช้ต่อไม่ได้ ถ้าไม่แยกชื่อ สคริปต์จะหยิบของเก่ามา
 # quantize เงียบ ๆ แล้วได้ผลพังเหมือนเดิมโดยไม่มีอะไรเตือน
 FP16_PATH = (
-    f"/content/Qwen-fp16-attn{ATTN_SCALE:.0f}-normfp32-fullrope-{'untied' if UNTIE_LM_HEAD else 'tied'}"
+    f"/content/Qwen-fp16-attn{ATTN_SCALE:.0f}-normfp32-fullrope-fixedshape"
+    f"-{'untied' if UNTIE_LM_HEAD else 'tied'}"
     f"-c{MAX_CONTEXT}-q{PREFILL_CHUNK}.mlpackage"
 )
 
@@ -263,33 +270,54 @@ FP16_PATH = (
 #
 # คลาสนี้ไม่สร้าง tensor เอง แต่รับ k/v ที่ StatefulQwen จดเป็น buffer ไว้แล้ว
 # เจ้าของ tensor จึงมีที่เดียว ไม่เกิดสองชื่อในลำดับชั้นโมดูล
-class SliceUpdateKeyValueCache(Cache):
+class FixedShapeKeyValueCache(Cache):
+    """cache ที่ไม่มีมิติเปลี่ยนได้และไม่มีเลขคณิตจากรูปร่างเลย
+
+    รุ่นก่อนหน้าเขียนด้วย `self.k[layer, :, :, begin:end, :]` โดย begin/end มาจาก
+    `causal_mask.shape[-1] - input_ids.shape[-1]` ซึ่งเป็นเลขที่กราฟต้องคำนวณเอง
+    ตอนรัน แล้วพังสองแบบบนของจริง:
+
+      1. Core ML หยิบแผนที่ specialize ตามรูปร่างมาใช้ซ้ำ ค่าที่คำนวณจาก shape จึง
+         ค้างที่ของเก่า — decode ก้าวที่สามเป็นต้นไปผิด
+      2. บนเครื่องจริง MPSGraph แก้มิติไม่ออกแล้ว assert ตายทั้งโปรเซส
+         `Failed to resolve dynamic dimension 3 (got -9223372036854775808)`
+         (-9223372036854775808 คือ Int64.min = "ยังไม่ถูกกำหนด")
+         เกิดทั้งบน `.all` และ `.cpuAndNeuralEngine` จึงไม่ใช่เรื่อง backend
+
+    รุ่นนี้จึงตัดต้นเหตุทิ้ง:
+
+      * ตำแหน่งที่จะเขียนมาจาก **input** `position_ids` ไม่ใช่จากรูปร่าง
+      * เขียนด้วย `index_copy_` ซึ่งรับ index เป็น tensor จึงไม่ถูกตรึงตอน trace
+        ต่างจากการเฉือนด้วย `begin:end` ที่ตรึงเป็นค่าคงที่
+      * **อ่านคืนทั้งก้อน** ไม่เฉือน — ช่องที่ยังไม่ถูกเขียนถูกปิดด้วย mask อยู่แล้ว
+        ความยาว key จึงเป็น MAX_CONTEXT ตายตัวเสมอ ไม่มีอะไรให้ resolve
+
+    ราคาที่จ่าย: attention กวาด MAX_CONTEXT ช่องทุกก้าวแม้บริบทจะสั้น แต่แลกกับการ
+    ที่ไม่ต้องแทรกการเรียกคั่นเพื่อล้าง specialization อีกแล้ว (เดิมจ่ายสองเท่าอยู่)
+    สุทธิจึงไม่ได้แย่ลง
+    """
+
     def __init__(self, *, k, v, max_context):
         super().__init__()
-        self.past_seen_tokens = 0
-        # เก็บเป็น Python int ห้ามไปอ่าน self.k.shape[-2] ทีหลัง เพราะ self.k
-        # ถูก trace ค่าที่ได้จะกลายเป็น traced value แล้วการเปรียบเทียบใน
-        # get_usable_length() จะงอกเข้าไปในกราฟโดยเปล่าประโยชน์
         self.max_context = max_context
         self.k = k
         self.v = v
+        # ตั้งจาก forward ก่อนเรียกโมเดล — เป็น tensor ที่มาจาก input ไม่ใช่ค่าคงที่
+        self.positions = None
 
     def update(self, k_state, v_state, layer_idx, cache_kwargs=None):
-        begin = self.past_seen_tokens
-        end = self.past_seen_tokens + k_state.shape[-2]
-        self.k[layer_idx, :, :, begin:end, :] = k_state
-        self.v[layer_idx, :, :, begin:end, :] = v_state
-        return self.k[layer_idx, :, :, :end, :], self.v[layer_idx, :, :, :end, :]
+        self.k[layer_idx].index_copy_(2, self.positions, k_state)
+        self.v[layer_idx].index_copy_(2, self.positions, v_state)
+        return self.k[layer_idx], self.v[layer_idx]
 
+    # ค่าพวกนี้ถูกใช้แค่คำนวณ `kv_seq_len` ซึ่งส่งต่อไปให้ rotary_emb ตัดตาราง
+    # แต่เราแพตช์ให้ rotary คืนทั้งตารางแล้ว ค่าจึงไม่มีผลกับผลลัพธ์
     def get_seq_length(self, layer_idx=0):
-        return self.past_seen_tokens
+        return 0
 
-    # transformers 4.44 ประกาศเมธอดนี้ไว้เป็น abstract — attention เรียกผ่าน
-    # get_usable_length() ทำให้ trace ตายด้วย NotImplementedError ถ้าไม่ implement
     def get_max_length(self):
         return self.max_context
 
-    # ชื่อที่ transformers รุ่นหลังเปลี่ยนไปใช้ ใส่ไว้กันเหนียว
     def get_max_cache_shape(self):
         return self.max_context
 
@@ -446,18 +474,19 @@ class StatefulQwen(torch.nn.Module):
         object.__setattr__(
             self,
             "kv_cache",
-            SliceUpdateKeyValueCache(
+            FixedShapeKeyValueCache(
                 k=self.keyCache, v=self.valueCache, max_context=max_context
             ),
         )
 
-    def forward(self, input_ids, causal_mask):
-        # ความยาวคอลัมน์ของ mask = จำนวน token ทั้งหมดที่มองเห็นได้
-        # ลบด้วยจำนวน token ที่ป้อนเข้ามารอบนี้ = จำนวนที่อยู่ใน cache อยู่แล้ว
-        self.kv_cache.past_seen_tokens = causal_mask.shape[-1] - input_ids.shape[-1]
+    def forward(self, input_ids, causal_mask, position_ids):
+        # ตำแหน่งมาจาก input ตรง ๆ ไม่คำนวณจากรูปร่างอีกแล้ว — เป็นทั้งตำแหน่งของ
+        # RoPE และดัชนีที่จะเขียนลง cache ใช้ค่าเดียวกันทั้งสองงานจึงไม่มีทางเพี้ยนกัน
+        self.kv_cache.positions = position_ids[0]
         logits = self.model(
             input_ids=input_ids,
             attention_mask=causal_mask,
+            position_ids=position_ids,
             past_key_values=self.kv_cache,
             use_cache=True,
         ).logits
@@ -549,15 +578,18 @@ else:
     # mask ตัวอย่างต้องเป็น dtype เดียวกับน้ำหนัก ไม่งั้น attention จะ upcast
     # ให้เองแล้วกราฟจะมี cast แปลกปลอมโผล่มา
     torch_dtype = next(torch_model.parameters()).dtype
-    example_ids = torch.zeros((1, 2), dtype=torch.int32)
-    example_mask = torch.zeros((1, 1, 2, 3), dtype=torch_dtype)
+    # trace ด้วยรูปของ prefill (q = PREFILL_CHUNK) เพราะเป็นรูปที่ใหญ่กว่า
+    # mask กว้างเต็ม MAX_CONTEXT เสมอ ไม่ว่าจะ prefill หรือ decode
+    example_ids = torch.zeros((1, PREFILL_CHUNK), dtype=torch.int32)
+    example_mask = torch.zeros((1, 1, PREFILL_CHUNK, MAX_CONTEXT), dtype=torch_dtype)
+    example_positions = torch.arange(PREFILL_CHUNK, dtype=torch.int32).unsqueeze(0)
 
     # TracerWarning เรื่อง "Converting a tensor to a Python boolean/integer"
     # จะโผล่มาหลายบรรทัดตรงนี้ — ปกติสำหรับดีไซน์นี้ ทุกอันเป็นเรื่องของ shape
     # ไม่ใช่ค่าใน tensor จึงไม่กระทบความถูกต้องของกราฟ
     print("Tracing...")
     with torch.no_grad():
-        traced = torch.jit.trace(wrapper, (example_ids, example_mask))
+        traced = torch.jit.trace(wrapper, (example_ids, example_mask, example_positions))
 
     # trace รัน forward จริงหนึ่งรอบ cache จึงมีค่า K/V ของ dummy input ค้างอยู่
     # ต้องล้างกลับเป็นศูนย์ให้ตรงกับค่าที่กราฟจับไว้ ไม่งั้น convert จะตายด้วย
@@ -585,19 +617,30 @@ else:
     # query_length = จำนวน token ที่ป้อนรอบนี้ (prefill = ก้อนละไม่เกิน
     # PREFILL_CHUNK, decode = 1) ส่วน context_length = จำนวนที่มองเห็นได้ทั้งหมด
     # สองอันนี้ต้องแยกเพดานกัน ดูเหตุผลที่คอมเมนต์ของ PREFILL_CHUNK
-    query_length = ct.RangeDim(lower_bound=1, upper_bound=PREFILL_CHUNK, default=1)
-    context_length = ct.RangeDim(lower_bound=1, upper_bound=MAX_CONTEXT, default=1)
+    # ── ไม่มีมิติที่เปลี่ยนได้เลย ───────────────────────────────────────────
+    #
+    # `RangeDim` เปิดช่องให้ Core ML ต้องคิดขนาดเองตอนรัน ซึ่งเป็นจุดที่พังมาแล้ว
+    # สองแบบ (ดูคอมเมนต์ยาวที่ FixedShapeKeyValueCache) `EnumeratedShapes` บอกไป
+    # ตรง ๆ ว่ามีแค่สองรูป Core ML จึงคอมไพล์แผนตายตัวไว้สองชุด ไม่ต้องเดาอะไรเลย
+    #
+    #   decode  : q = 1
+    #   prefill : q = PREFILL_CHUNK  (ก้อนสุดท้ายที่สั้นกว่านี้ให้ฝั่ง Swift เติมให้เต็ม
+    #             แล้วปิดส่วนที่เติมด้วย mask)
+    #
+    # mask กว้าง MAX_CONTEXT เสมอทั้งสองรูป
+    ids_shapes = ct.EnumeratedShapes(shapes=[[1, 1], [1, PREFILL_CHUNK]])
+    mask_shapes = ct.EnumeratedShapes(
+        shapes=[[1, 1, 1, MAX_CONTEXT], [1, 1, PREFILL_CHUNK, MAX_CONTEXT]]
+    )
+    position_shapes = ct.EnumeratedShapes(shapes=[[1, 1], [1, PREFILL_CHUNK]])
 
     print("Converting to Core ML...")
     mlmodel = ct.convert(
         traced,
         inputs=[
-            ct.TensorType(name="input_ids", shape=(1, query_length), dtype=np.int32),
-            ct.TensorType(
-                name="causal_mask",
-                shape=(1, 1, query_length, context_length),
-                dtype=np.float16,
-            ),
+            ct.TensorType(name="input_ids", shape=ids_shapes, dtype=np.int32),
+            ct.TensorType(name="causal_mask", shape=mask_shapes, dtype=np.float16),
+            ct.TensorType(name="position_ids", shape=position_shapes, dtype=np.int32),
         ],
         outputs=[ct.TensorType(name="logits", dtype=np.float16)],
         # Core ML รองรับ state เป็น fp16 อย่างเดียว ห้ามเปลี่ยน

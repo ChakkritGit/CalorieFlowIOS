@@ -136,6 +136,7 @@ actor CoreMLBackend {
             cursor = end
         }
 
+
         var generated: [Int] = []
 
         for _ in 0..<maxNewTokens {
@@ -148,8 +149,6 @@ actor CoreMLBackend {
             // ชน MAX_CONTEXT แล้วป้อนต่อไม่ได้ Core ML จะปฏิเสธคำขอทั้งก้อน
             guard past + 1 < Self.maxContext else { break }
 
-            try breakShapeSpecialization()
-
             // decode: ป้อนทีละ token ที่เหลือ Core ML อ่านจาก state ให้เอง
             logits = try predict(tokens: [next], pastLength: past, state: state)
             past += 1
@@ -159,67 +158,58 @@ actor CoreMLBackend {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// เรียกโมเดลด้วยรูปร่างอื่นบน state ทิ้ง — **ห้ามตัดออก**
-    ///
-    /// Core ML เก็บแผนการรันที่ specialize ตามรูปร่าง input ไว้ใช้ซ้ำ พอ decode
-    /// ป้อน q=1 ติดกันหลายครั้ง มันจะหยิบแผนเดิมมาใช้ทั้งที่ ctx โตขึ้นทุกครั้ง
-    /// ค่าที่กราฟคำนวณจาก shape จึงค้างอยู่ที่ของเก่า ผลคือ **สองก้าวแรกถูก
-    /// ก้าวที่สามเป็นต้นไปผิด** และผิดเหมือนกันทุก backend
-    ///
-    /// วัดจากโมเดลจริง โดยเทียบ decode ทีละ token กับการป้อนทั้งก้อนรวดเดียว
-    /// (ค่าที่ต่างกันควรอยู่ระดับปัดเศษ fp16 คือราว 0.02):
-    ///
-    ///     ไม่แทรก   k1=0.017  k2=0.025  k3=7.891  k4=9.713  k5=6.373
-    ///     แทรก      k1=0.017  k2=0.025  k3=0.023  k4=0.026  k5=0.025
-    ///
-    /// เห็นผลกับข้อความจริงชัดเจน — "The capital of France is" ต่อได้ว่า
-    /// " Paris. The capital of France is Paris." เมื่อแทรก ส่วนถ้าไม่แทรกจะได้
-    /// " Paris. The capital of course: true or Paris is a"
-    ///
-    /// การแทรกที่ **รูปร่างเดียวกัน** ไม่ช่วยเลย ต้องต่างรูปร่างจริง ๆ เท่านั้น
-    /// ซึ่งเป็นหลักฐานว่าเป็นเรื่องแผนที่ผูกกับรูปร่าง ไม่ใช่การหน่วงเขียน state
-    ///
-    /// ราคาที่จ่ายคือหนึ่ง forward ต่อหนึ่ง token — ราว 7 token/วินาที แทนที่จะ
-    /// เป็นสองเท่าของนั้น ถ้าวันหนึ่ง Core ML แก้บั๊กนี้ ให้ลบเมธอดนี้ทิ้งแล้ว
-    /// รันการเทียบข้างบนซ้ำเพื่อยืนยันก่อน
-    private func breakShapeSpecialization() throws {
-        _ = try predict(tokens: [0, 0], pastLength: 0, state: model.makeState())
-    }
-
     // MARK: - Core ML plumbing
 
+    /// เรียกโมเดลหนึ่งครั้ง
+    ///
+    /// รูปร่างของ input ตายตัวสองแบบตามที่โมเดลถูกแปลงมา — q เป็น 1 (decode) หรือ
+    /// `prefillChunk` (prefill) เท่านั้น ก้อนที่สั้นกว่านั้นต้องเติมให้เต็มแล้วปิด
+    /// ส่วนที่เติมด้วย mask ดูเหตุผลเต็มที่ `FixedShapeKeyValueCache` ใน convert.py
     private func predict(tokens: [Int], pastLength: Int, state: MLState) throws -> [Float] {
-        let queryLength = tokens.count
-        let contextLength = pastLength + queryLength
+        let real = tokens.count
+        // decode ใช้ 1 ส่วน prefill ใช้เต็มก้อนเสมอ ต่อให้ token จริงจะน้อยกว่า
+        let q = real == 1 ? 1 : Self.prefillChunk
+        precondition(real <= q, "ก้อนใหญ่กว่า prefillChunk")
 
-        let inputIds = try MLMultiArray(shape: [1, NSNumber(value: queryLength)], dataType: .int32)
+        let inputIds = try MLMultiArray(shape: [1, NSNumber(value: q)], dataType: .int32)
+        let positions = try MLMultiArray(shape: [1, NSNumber(value: q)], dataType: .int32)
         inputIds.withUnsafeMutableBufferPointer(ofType: Int32.self) { buffer, _ in
-            for (index, token) in tokens.enumerated() {
-                buffer[index] = Int32(token)
+            for index in 0..<q {
+                // ช่องที่เติมใส่ token อะไรก็ได้ เพราะถูกปิดด้วย mask อยู่แล้ว
+                buffer[index] = Int32(index < real ? tokens[index] : 0)
+            }
+        }
+        positions.withUnsafeMutableBufferPointer(ofType: Int32.self) { buffer, _ in
+            for index in 0..<q {
+                // ช่องที่เติมชี้ไปที่ตำแหน่งของตัวเอง จะได้ไม่ไปทับ cache ของ token จริง
+                buffer[index] = Int32(min(pastLength + index, Self.maxContext - 1))
             }
         }
 
+        // mask กว้างเต็ม maxContext เสมอ ไม่ว่าบริบทจะสั้นแค่ไหน
         let mask = try MLMultiArray(
-            shape: [1, 1, NSNumber(value: queryLength), NSNumber(value: contextLength)],
+            shape: [1, 1, NSNumber(value: q), NSNumber(value: Self.maxContext)],
             dataType: .float16
         )
-        // mask มีแค่สองค่าคือ 0 กับ -inf จึงเขียนเป็นบิต float16 ตรง ๆ ได้เลย
-        // ไม่ต้องแตะชนิด `Float16` ของ Swift ซึ่งคอมไพล์ไม่ผ่านบน simulator x86_64
         mask.withUnsafeMutableBytes { raw, _ in
             let buffer = raw.bindMemory(to: UInt16.self)
-            for row in 0..<queryLength {
-                // token ตัวที่ `row` มองเห็นได้ถึงตำแหน่ง pastLength + row เท่านั้น
+            for row in 0..<q {
                 let visible = pastLength + row
-                for column in 0..<contextLength {
-                    buffer[row * contextLength + column] =
-                        column <= visible ? Self.visibleBits : Self.maskedBits
+                let rowIsReal = row < real
+                for column in 0..<Self.maxContext {
+                    // แถวที่เติมเข้ามาปิดทั้งแถว ส่วนแถวจริงเปิดถึงตำแหน่งของตัวเอง
+                    // ช่อง cache ที่ยังไม่เคยเขียนก็ถูกปิดด้วยเงื่อนไขเดียวกันนี้
+                    let open = rowIsReal && column <= visible
+                    buffer[row * Self.maxContext + column] =
+                        open ? Self.visibleBits : Self.maskedBits
                 }
             }
         }
 
         let input = try MLDictionaryFeatureProvider(dictionary: [
             "input_ids": MLFeatureValue(multiArray: inputIds),
-            "causal_mask": MLFeatureValue(multiArray: mask)
+            "causal_mask": MLFeatureValue(multiArray: mask),
+            "position_ids": MLFeatureValue(multiArray: positions)
         ])
 
         let output = try model.prediction(from: input, using: state)
@@ -227,9 +217,7 @@ actor CoreMLBackend {
             return []
         }
 
-        // โมเดลตัดมาให้แล้วเหลือเฉพาะตำแหน่งสุดท้าย — shape เป็น (1, 1, vocab)
-        // เสมอ ไม่ว่าจะป้อนมากี่ token ก็ตาม ตำแหน่งก่อนหน้าเป็นการทำนาย token
-        // ที่รู้คำตอบอยู่แล้ว การตัดตั้งแต่ในกราฟช่วยลด output จาก 39 MB เหลือ 0.3 MB
+        // โมเดลตัดมาให้แล้วเหลือเฉพาะตำแหน่งสุดท้าย — shape เป็น (1, 1, vocab) เสมอ
         let vocabSize = raw.shape[raw.shape.count - 1].intValue
         var row = [Float](repeating: 0, count: vocabSize)
         raw.withUnsafeBytes { bytes in
