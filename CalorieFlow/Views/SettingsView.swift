@@ -556,8 +556,9 @@ private struct DataSettingsView: View {
         ) {
             SettingsStackRow {
                 HStack(spacing: 10) {
-                    dataButton(title: t.exportButton, icon: "square.and.arrow.down", tint: Palette.blue, action: exportData)
-                    dataButton(title: t.importButton, icon: "square.and.arrow.up", tint: Palette.green) {
+                    // ทิศของลูกศรตามที่ระบบใช้ — ออกจากกล่องคือส่งออก เข้ากล่องคือนำเข้า
+                    dataButton(title: t.exportButton, icon: "square.and.arrow.up", tint: Palette.blue, action: exportData)
+                    dataButton(title: t.importButton, icon: "square.and.arrow.down", tint: Palette.green) {
                         showImporter = true
                     }
                 }
