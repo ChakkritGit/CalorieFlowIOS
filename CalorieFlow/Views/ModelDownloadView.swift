@@ -20,7 +20,7 @@ struct ModelDownloadView: View {
         // `AICoach` เช็กไฟล์บนดิสก์ครั้งเดียวตอนสร้าง ต้องบอกให้ประเมินใหม่เมื่อ
         // สถานะเปลี่ยน ไม่งั้นโหลดเสร็จแล้วก็ยังได้คำแนะนำแบบกฎธรรมดาจนกว่าจะรีสตาร์ท
         // (และเช่นเดียวกันตอนลบโมเดล ต้องปล่อย backend ที่ถืออยู่ทิ้ง)
-        .onChange(of: downloader.phase) { coach.refreshAvailability() }
+        .onChange(of: downloader.isReady) { coach.refreshAvailability() }
     }
 
     // MARK: - Sections

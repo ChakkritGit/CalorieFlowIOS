@@ -7,10 +7,19 @@ enum AppTab: Hashable {
 
 struct RootView: View {
     @Environment(AppStore.self) private var store
+    @Environment(AICoach.self) private var coach
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var tab: AppTab = .dashboard
     @State private var showAddSheet = false
+
+    /// เฝ้าการติดตั้งจากที่นี่ ไม่ใช่จากหน้าโมเดล
+    ///
+    /// การดาวน์โหลดถูกออกแบบมาให้ปิดแอปทิ้งไว้ได้ แต่ตัวเฝ้าเดิมอยู่บนหน้าโมเดล
+    /// ซึ่งเป็นปลายทางของ `NavigationLink` — กดย้อนกลับปุ๊บ view ถูกทำลาย ไม่มีใคร
+    /// เหลืออยู่ให้รู้ว่าโหลดเสร็จ `AICoach.status` จึงค้างเป็น "ไม่มีโมเดล" ไปจนกว่า
+    /// จะเปิดแอปใหม่ ทั้งที่ไฟล์พร้อมแล้ว
+    @State private var downloader = ModelDownloader.shared
 
     /// เวอร์ชันเว็บเช็ควันที่ทุกนาทีเผื่อแอปเปิดค้างข้ามเที่ยงคืน
     private let midnightTick = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
@@ -54,6 +63,7 @@ struct RootView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { store.refreshTodayIfNeeded() }
         }
+        .onChange(of: downloader.isReady) { coach.refreshAvailability() }
     }
 }
 

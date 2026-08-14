@@ -79,6 +79,17 @@ final class ModelDownloader {
 
     private(set) var phase: Phase = .notInstalled
 
+    /// "ติดตั้งเสร็จแล้วหรือยัง" ล้วน ๆ — ตัด progress ออกโดยตั้งใจ
+    ///
+    /// `Phase` พก `Progress` มาด้วยและ `Progress` เป็น `Equatable` ตัว `onChange(of:)`
+    /// ที่ผูกกับ `phase` จึงยิงทุกแพ็กเก็ตที่ดาวน์โหลดได้ ซึ่งแปลว่า
+    /// `AICoach.refreshAvailability()` ทำงานหลายสิบครั้งต่อวินาที ทิ้งโมเดล 1.1 GB
+    /// ที่โหลดไว้แล้วและ stat ไฟล์บนเมนเธรดรัว ๆ ตลอดการดาวน์โหลด
+    var isReady: Bool {
+        if case .ready = phase { return true }
+        return false
+    }
+
     var isBusy: Bool {
         switch phase {
         case .downloading, .compiling: return true
@@ -260,7 +271,12 @@ final class ModelDownloader {
     ///
     /// ลบของกลางทันทีที่ผ่านแต่ละขั้น — ถ้ารอลบตอนจบ เครื่องที่พื้นที่เหลือน้อย
     /// จะเต็มระหว่างคอมไพล์ทั้งที่พื้นที่สุทธิพอ
-    private static func unpackAndCompile(in directory: URL) async throws {
+    /// **ต้องเป็น `nonisolated`** — คลาสนี้ประกาศ `@MainActor` สมาชิก `static` จึงผูก
+    /// main actor ไปด้วย `Task.detached` เลี่ยงแค่การ *สืบทอด* บริบท พอ `await`
+    /// เมธอดที่ผูก main actor มันก็กระโดดกลับขึ้นมาทั้งดุ้น การแตก zip 1.5 GB
+    /// จึงรันบนเมนเธรดจริง ๆ ตรงข้ามกับที่คอมเมนต์ตรงจุดเรียกบอกไว้ — UI ค้างยาว
+    /// และถ้าผู้ใช้สลับออกจากแอปตอนนั้น watchdog ฆ่าโปรเซสได้
+    nonisolated private static func unpackAndCompile(in directory: URL) async throws {
         let fileManager = FileManager.default
         let zipURL = directory.appendingPathComponent("Qwen-int8.mlpackage.zip")
         let packageURL = directory.appendingPathComponent("Qwen-int8.mlpackage")
@@ -292,7 +308,8 @@ final class ModelDownloader {
         try? fileManager.removeItem(at: found)
     }
 
-    private static func locatePackage(under directory: URL) -> URL? {
+    /// `nonisolated` เพราะถูกเรียกจาก `unpackAndCompile` ที่รันนอก main actor
+    nonisolated private static func locatePackage(under directory: URL) -> URL? {
         let direct = directory.appendingPathComponent("Qwen-int8.mlpackage")
         if FileManager.default.fileExists(atPath: direct.path) { return direct }
 

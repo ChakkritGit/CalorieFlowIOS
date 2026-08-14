@@ -292,6 +292,18 @@ final class AICoach {
     @MainActor
     func resetChat(_ context: AdviceContext, _ t: L10n) {
         chat = [ChatMessage(role: .coach, text: t.aiChatGreeting(context.name))]
+        startSession(context, t)
+    }
+
+    /// สร้างเซสชันใหม่โดย **ไม่แตะบทสนทนา**
+    ///
+    /// แยกออกมาเพราะ `send` เคยเรียก `resetChat` เพื่อขอเซสชัน ซึ่งล้าง `chat`
+    /// ทั้งก้อนรวมถึงคำถามที่เพิ่ง append ไปสามบรรทัดก่อนหน้า — ผู้ใช้เห็นข้อความ
+    /// ตัวเองหายวับตอนกดส่ง แล้วคำตอบโผล่มาลอย ๆ เข้าเงื่อนไขได้จริงเมื่อ
+    /// `chatSession` เป็น nil ทั้งที่ `chat` ไม่ว่าง เช่นหลัง `refreshAvailability()`
+    /// หรือหลังปิด-เปิดสวิตช์ AI
+    @MainActor
+    private func startSession(_ context: AdviceContext, _ t: L10n) {
         chatSession = nil
 
         guard usesModel, #available(iOS 26.0, *) else { return }
@@ -323,7 +335,7 @@ final class AICoach {
         }
 
         if #available(iOS 26.0, *), case .ready = Self.foundationModelsStatus() {
-            if chatSession == nil { resetChat(context, t) }
+            if chatSession == nil { startSession(context, t) }
             if let session = chatSession as? LanguageModelSession,
                let response = try? await session.respond(to: question) {
                 chat.append(ChatMessage(role: .coach, text: response.content))
