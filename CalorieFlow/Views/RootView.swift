@@ -156,23 +156,34 @@ struct ScreenScroll<Content: View>: View {
     }
 }
 
-/// โครงหน้าย่อยที่ทุกหน้าใต้ "ตั้งค่า" ใช้ร่วมกัน
+/// โครงหน้าย่อยที่ทุกหน้าใต้ "ตั้งค่า" ใช้ร่วมกัน รวมถึงหน้าโมเดล AI
 ///
-/// อยู่ตรงนี้ไม่ใช่ใน SettingsView.swift เพราะหน้าโมเดล AI อยู่คนละไฟล์แต่ต้องหน้าตา
-/// เหมือนกันเป๊ะ ตอนที่ต่างคนต่างประกอบโครงเอง navigation bar กับระยะขอบก็เพี้ยนคนละแบบ
+/// ยึดตามหน้าโมเดล AI เป็นต้นแบบ ไม่ใช่ `ScreenScroll` ที่หน้าอื่นเคยใช้ — ต่างกันสามจุด
+/// ที่เห็นได้จริงตรงแถบบน: ระยะขอบ 20 ไม่ใช่ 24, ระยะห่างระหว่างการ์ด 16 ไม่ใช่ 24,
+/// และ **ไม่บังคับพื้นหลังของ navigation bar** ปล่อยให้เป็นค่าปกติซึ่งโปร่งตอนยังไม่เลื่อน
+/// แล้วค่อยเบลอเมื่อเนื้อหาไหลลอดขึ้นไป การบังคับสีทึบทำให้แถบบนดูตันและไม่ต่อเนื่อง
+/// กับพื้นหลัง
 struct SettingsDetailScreen<Content: View>: View {
     let title: String
     @ViewBuilder var content: () -> Content
 
     var body: some View {
-        // ไม่ส่ง title เข้า `ScreenScroll` แล้ว — ให้ navigation bar เป็นคนแสดงชื่อหน้า
-        // แบบ inline กลางจอ เหมือนหน้าโมเดล AI ไม่งั้นสองหน้านี้หน้าตาคนละแบบ
-        // ทั้งที่อยู่ระดับเดียวกันในลำดับชั้นเดียวกัน
-        ScreenScroll {
-            content()
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                content()
+            }
+            .padding(20)
+            // เผื่อแถบแท็บที่วาดเองด้านล่าง หน้าโมเดลไม่เคยต้องมีเพราะเนื้อหาสั้น
+            // แต่หน้าโปรไฟล์กับเป้าหมายยาวพอที่บรรทัดท้ายจะถูกบัง
+            .padding(.bottom, 110)
         }
+        .scrollIndicators(.hidden)
+        .scrollDismissesKeyboard(.immediately)
+        .background(
+            Palette.background
+                .onTapGesture { hideKeyboard() }
+        )
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(Palette.background, for: .navigationBar)
     }
 }
