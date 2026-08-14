@@ -561,10 +561,13 @@ private struct SettingsDetailScreen<Content: View>: View {
     @ViewBuilder var content: () -> Content
 
     var body: some View {
-        ScreenScroll(title: title) {
+        // ไม่ส่ง title เข้า `ScreenScroll` แล้ว — ให้ navigation bar เป็นคนแสดงชื่อหน้า
+        // แบบ inline กลางจอ เหมือนหน้าโมเดล AI ไม่งั้นสองหน้านี้หน้าตาคนละแบบ
+        // ทั้งที่อยู่ระดับเดียวกันในลำดับชั้นเดียวกัน
+        ScreenScroll {
             content()
         }
-        .navigationTitle("")
+        .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Palette.background, for: .navigationBar)
     }

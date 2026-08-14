@@ -138,6 +138,12 @@ struct ScreenScroll<Content: View>: View {
             .padding(.bottom, 110)
         }
         .scrollIndicators(.hidden)
+        // `.interactively` ต้องลากลงไปโดนคีย์บอร์ดถึงจะปิด ซึ่งไม่ใช่สิ่งที่คนคาดหวัง
+        // จากการ "เลื่อนหน้าจอ" — `.immediately` ปิดตั้งแต่เริ่มเลื่อน
+        //
+        // ต้องอยู่ตรงนี้ที่ตัว ScrollView จริง ๆ ไม่ใช่ไปแปะข้างนอก `ScreenScroll`
+        // เพราะ modifier นี้มองหา scroll view ที่ใกล้ที่สุด
+        .scrollDismissesKeyboard(.immediately)
         // แตะที่ว่างแล้วปิดคีย์บอร์ด — วางไว้ที่พื้นหลังซึ่งอยู่ *หลัง* เนื้อหา
         // ปุ่มกับช่องกรอกจึงรับสัมผัสของตัวเองไปก่อน ที่เหลือถึงตกมาถึงตรงนี้
         //

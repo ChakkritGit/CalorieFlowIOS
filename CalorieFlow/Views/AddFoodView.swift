@@ -88,7 +88,6 @@ struct AddFoodView: View {
         }
         // ช่องแคลอรี่เป็น numberPad ซึ่งไม่มีปุ่ม return ให้กดปิด จึงต้องมีทางอื่น
         // ส่วนการแตะที่ว่างเพื่อปิด อยู่ที่พื้นหลังของ `ScreenScroll` แล้ว
-        .scrollDismissesKeyboard(.interactively)
         .toolbar(.hidden, for: .navigationBar)
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {

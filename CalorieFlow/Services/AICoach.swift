@@ -135,7 +135,15 @@ final class AICoach {
         \(t.aiPromptDailyTask)
         """
 
-        return await respond(to: prompt, instructions: t.aiSystemInstructions, fallback: fallback)
+        // 90 token พอสำหรับสองสามประโยค — ค่าเดิม 220 ทำให้การ์ดนี้ซึ่งรันเองตอนเปิดแอป
+        // ต้องเดินโมเดลหลายร้อยรอบ (คูณสองอีกเพราะต้องแทรกการเรียกคั่นทุกก้าว)
+        // ผู้ใช้เลยเห็น "กำลังคิด" ค้างเป็นนาที
+        return await respond(
+            to: prompt,
+            instructions: t.aiSystemInstructions,
+            fallback: fallback,
+            maxNewTokens: 90
+        )
     }
 
     // MARK: - Weekly summary
@@ -158,7 +166,12 @@ final class AICoach {
         \(t.aiPromptWeeklyTask)
         """
 
-        return await respond(to: prompt, instructions: t.aiSystemInstructions, fallback: fallback)
+        return await respond(
+            to: prompt,
+            instructions: t.aiSystemInstructions,
+            fallback: fallback,
+            maxNewTokens: 110
+        )
     }
 
     // MARK: - Calorie estimate
@@ -312,7 +325,12 @@ final class AICoach {
     ///
     /// ทุกชั้นล้มแล้วตกชั้นถัดไปเงียบ ๆ ผู้ใช้เห็นคำตอบเสมอ ต่างกันแค่คุณภาพ
     @MainActor
-    private func respond(to prompt: String, instructions: String, fallback: String) async -> String {
+    private func respond(
+        to prompt: String,
+        instructions: String,
+        fallback: String,
+        maxNewTokens: Int
+    ) async -> String {
         if #available(iOS 26.0, *), case .ready = Self.foundationModelsStatus() {
             do {
                 let session = LanguageModelSession { instructions }
@@ -326,7 +344,11 @@ final class AICoach {
 
         if let backend = await coreML() {
             do {
-                let text = try await backend.respond(instructions: instructions, prompt: prompt)
+                let text = try await backend.respond(
+                    instructions: instructions,
+                    prompt: prompt,
+                    maxNewTokens: maxNewTokens
+                )
                 if !text.isEmpty { return text }
                 aiLog.error("Core ML ตอบกลับมาเป็นข้อความว่าง")
             } catch {
