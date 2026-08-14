@@ -64,6 +64,22 @@ final class AICoach {
     /// ใช้โมเดลได้จริงก็ต่อเมื่อรองรับ *และ* ผู้ใช้ไม่ได้ปิดไว้
     var usesModel: Bool { isEnabled && status.isReady }
 
+    /// ชั้นที่จะได้ตอบคำขอถัดไปจริง ๆ
+    ///
+    /// ลำดับตรงกับที่ `respond` กับ `send` ไล่จริง — ถ้าแก้ลำดับที่นั่นต้องแก้ที่นี่ด้วย
+    /// ไม่งั้นหน้าตั้งค่าจะโกหกผู้ใช้
+    enum Backend {
+        case foundationModels
+        case coreML
+        case ruleBased
+    }
+
+    var activeBackend: Backend {
+        guard usesModel else { return .ruleBased }
+        if case .ready = Self.foundationModelsStatus() { return .foundationModels }
+        return ModelStore.isUsable ? .coreML : .ruleBased
+    }
+
     /// ประเมินใหม่ว่ามีโมเดลให้ใช้ไหม — ต้องเรียกหลังดาวน์โหลดเสร็จหรือลบโมเดลทิ้ง
     ///
     /// `status` ดูจากไฟล์บนดิสก์ แต่คิดครั้งเดียวตอน `init` ถ้าไม่ประเมินใหม่

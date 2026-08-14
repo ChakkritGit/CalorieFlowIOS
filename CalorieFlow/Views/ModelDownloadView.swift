@@ -13,6 +13,7 @@ struct ModelDownloadView: View {
     var body: some View {
         SettingsDetailScreen(title: t.modelTitle) {
             header
+            backendCard
             statusCard
             footnote
         }
@@ -35,6 +36,49 @@ struct ModelDownloadView: View {
                 .foregroundStyle(Palette.inkSoft)
         }
         .cardStyle()
+    }
+
+    /// ชั้นไหนกำลังตอบอยู่จริง
+    ///
+    /// มีเพราะทั้งสามชั้นตกทอดกันเงียบ ๆ ตามการออกแบบ — ผู้ใช้ที่ได้คำตอบไม่เข้าท่า
+    /// จึงไม่มีทางรู้เลยว่ากำลังคุยกับโมเดล 1.5B ในเครื่องอยู่ ทั้งที่เปิด Apple
+    /// Intelligence แล้วจะดีขึ้นทันที การเงียบตรงนี้ทำให้คุณภาพที่ต่างกันมากดูเหมือน
+    /// เป็นความผิดของแอปเอง
+    private var backendCard: some View {
+        let (name, note, tint) = backendDetails
+
+        return VStack(alignment: .leading, spacing: 10) {
+            Text(t.backendCardTitle)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Palette.inkFaint)
+
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(tint)
+                    .frame(width: 10, height: 10)
+                Text(name)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Palette.ink)
+            }
+
+            Text(note)
+                .font(.footnote)
+                .foregroundStyle(Palette.inkSoft)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .cardStyle()
+    }
+
+    private var backendDetails: (name: String, note: String, tint: Color) {
+        switch coach.activeBackend {
+        case .foundationModels:
+            (t.backendFoundationModels, t.backendFoundationModelsNote, Palette.green)
+        case .coreML:
+            (t.backendCoreML, t.backendCoreMLNote, Palette.purple)
+        case .ruleBased:
+            (t.backendRuleBased, t.backendRuleBasedNote, Palette.inkFaint)
+        }
     }
 
     private var statusCard: some View {

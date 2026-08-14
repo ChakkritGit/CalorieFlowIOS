@@ -392,6 +392,24 @@ struct L10n {
     }
 
     var aiPromptContextHeader: String { s("ข้อมูลผู้ใช้ปัจจุบัน", "Current user data") }
+    var backendCardTitle: String { s("ตอนนี้ใช้อะไรตอบ", "Answering right now") }
+    var backendFoundationModels: String { s("Apple Intelligence", "Apple Intelligence") }
+    var backendCoreML: String { s("โมเดลในเครื่อง (Qwen 1.5B)", "On-device model (Qwen 1.5B)") }
+    var backendRuleBased: String { s("คำแนะนำแบบกฎ", "Rule-based advice") }
+
+    var backendFoundationModelsNote: String {
+        s("คุณภาพดีที่สุดและจำบทสนทนาได้ ไม่กินพื้นที่เพิ่ม",
+          "The best answers available, and it remembers the conversation. Costs no extra space.")
+    }
+    var backendCoreMLNote: String {
+        s("ใช้เมื่อเครื่องไม่มี Apple Intelligence ตอบเป็นภาษาธรรมชาติได้ แต่โมเดลเล็กจึงหลุดประเด็นได้บ่อย เปิด Apple Intelligence แล้วจะดีขึ้นทันที",
+          "Used when Apple Intelligence is unavailable. It answers in natural language but the model is small, so it wanders off topic. Turning on Apple Intelligence improves this immediately.")
+    }
+    var backendRuleBasedNote: String {
+        s("ข้อความสำเร็จรูปตามสถานการณ์ ไม่ใช้โมเดลเลย ตรงประเด็นเสมอแต่ไม่ยืดหยุ่น",
+          "Prewritten advice picked to match the situation. No model involved — always on point, never flexible.")
+    }
+
     var aiPromptChatHistoryHeader: String {
         s("สิ่งที่ผู้ใช้เล่าไว้ก่อนหน้านี้", "What the user mentioned earlier")
     }
