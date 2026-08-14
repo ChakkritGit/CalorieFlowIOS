@@ -255,10 +255,20 @@ HEAD_DIM = 128
 # ชื่อ checkpoint ผูกกับแพตช์ทุกตัวที่มีผลต่อกราฟ (attn64, normfp32, fullrope)
 # ของที่ trace ไว้ก่อนแพตช์ใช้ต่อไม่ได้ ถ้าไม่แยกชื่อ สคริปต์จะหยิบของเก่ามา
 # quantize เงียบ ๆ แล้วได้ผลพังเหมือนเดิมโดยไม่มีอะไรเตือน
+#
+# GRAPH_REV เอาไว้กันเคสที่ค่าคงที่ข้างบนไม่เปลี่ยนแต่ *โค้ดที่สร้างกราฟ* เปลี่ยน
+# **บวกเลขนี้ทุกครั้งที่แก้ StatefulQwen หรือ FixedShapeKeyValueCache**
+# เคยเสียรอบมาแล้วเพราะไม่มีตัวนี้: แก้วิธีเขียน KV cache แล้วรันใหม่ สคริปต์เจอ
+# checkpoint ชื่อเดิม เลยข้าม trace/convert ไป quantize ก้อนเก่าซ้ำ ได้ไฟล์ที่
+# เหมือนเดิมทุกไบต์ ("พบ checkpoint อยู่แล้ว — ข้าม trace/convert ไปทำ quantize ต่อ")
+#
+#   rev 2 — เขียน cache ด้วย scatter แบบ functional แล้วเขียนกลับลง state
+GRAPH_REV = 2
+
 FP16_PATH = (
     f"/content/Qwen-fp16-attn{ATTN_SCALE:.0f}-normfp32-fullrope-fixedshape"
     f"-{'untied' if UNTIE_LM_HEAD else 'tied'}"
-    f"-c{MAX_CONTEXT}-q{PREFILL_CHUNK}.mlpackage"
+    f"-c{MAX_CONTEXT}-q{PREFILL_CHUNK}-rev{GRAPH_REV}.mlpackage"
 )
 
 
@@ -310,10 +320,51 @@ class FixedShapeKeyValueCache(Cache):
         #   RuntimeError: PyTorch convert function for op 'index_copy_' not implemented
         # ทั้งสองตัวทำงานเหมือนกันในกรณีนี้ ต่างแค่ `scatter_` ต้องการ index ที่มีรูปร่าง
         # เท่ากับ source จึงต้องขยายตำแหน่ง (q,) ให้เป็น (1, kv_heads, q, head_dim) ก่อน
-        index = self.positions.view(1, 1, -1, 1).expand_as(k_state)
-        self.k[layer_idx].scatter_(2, index, k_state)
-        self.v[layer_idx].scatter_(2, index, v_state)
-        return self.k[layer_idx], self.v[layer_idx]
+        #
+        # ขยายด้วย `repeat` (-> `tile` ใน MIL) ไม่ใช่ `expand_as` — `expand` ของ torch
+        # เป็น view ที่ stride เป็นศูนย์ ไม่ได้สร้าง tensor จริง coremltools จึงพากราฟ
+        # ข้ามการขยายไป เหลือ index รูป (1, 1, q, 1) แล้วไปตายที่ type_inference:
+        #   AssertionError  ops/defs/iOS15/scatter_gather.py:429
+        #   assert self.data.shape[i] == self.indices.shape[i]
+        # (data มี kv_heads = 2 ที่แกน 1 ส่วน index ยังเป็น 1) `tile` วัสดุออกมาเป็น
+        # tensor จริง รูปร่างจึงตรงทุกแกนที่ไม่ใช่แกนที่ scatter
+        #
+        # kv_heads กับ head_dim เป็นค่าคงที่ มีแค่ q ที่เปลี่ยนตาม EnumeratedShapes
+        # จึงอ่านจาก k_state ได้โดยไม่ทำให้เกิดเลขที่คำนวณจากรูปร่างเพิ่ม
+        index = self.positions.view(1, 1, -1, 1).repeat(
+            1, k_state.shape[1], 1, k_state.shape[3]
+        )
+        #
+        # แคสต์ให้ตรงกับ cache ก่อนเขียน — ฝั่ง torch เป็น no-op ตอน dtype ตรงกันอยู่แล้ว
+        # แต่ที่ต้องมีเพราะ MIL เข้มกว่า:
+        #   ValueError: In op, of type scatter_along_axis, ... the named input `updates`
+        #   must have the same data type as the named input `data`. However, updates has
+        #   dtype fp16 whereas data has dtype fp32.
+        # cache เป็น fp32 ฝั่ง torch (ดูเหตุผลที่ register_buffer) ส่วน k_state มาจาก
+        # โมเดล fp16 สองฝั่งจึงไม่ตรงกันในกราฟ ต้องแคสต์ให้ชัด ไม่ใช่ปล่อยให้ frontend เดา
+        #
+        # ── เขียนลง state ให้ coremltools เห็น ─────────────────────────────────
+        #
+        # **อย่าเขียนแบบ `self.k[layer_idx].scatter_(...)`** ถึงจะถูกทุกอย่างในสายตา
+        # torch แต่ฝั่ง MIL มันคือการเขียนลง *view* แล้วทิ้ง ถ้า `update()` ไปอ่าน
+        # `self.k[layer_idx]` กลับมาคืนอีกที ผลของ scatter จะไม่มีใครใช้ coremltools
+        # จึงตัดทิ้งทั้งดุ้นเป็น dead code — แปลงผ่าน ไม่มี error สักบรรทัด แต่ได้โมเดลที่
+        # cache เป็นศูนย์ตลอด attention มองไม่เห็นแม้แต่ token ของตัวเอง คำตอบจึงเป็น
+        # ขยะและ *เหมือนกันทุก prompt* (วัดมาแล้ว 23-35 tok/s เพราะทำงานน้อยลง)
+        #
+        # ตรวจจับได้ถูก ๆ โดยไม่ต้องรันโมเดล — ดู `_assert_state_writes()` ใต้ ct.convert
+        #
+        # รุ่นนี้จึงแยกเป็นสองจังหวะให้ชัด: scatter แบบ functional ได้ tensor ก้อนใหม่
+        # ออกมาก่อน แล้วค่อยเขียนกลับลง buffer ด้วย `__setitem__` ซึ่งเป็นการเขียนลง
+        # ตัว state จริง (แกน 0 เป็นค่าคงที่ตอน trace เพราะ layer_idx เป็น int ธรรมดา)
+        # แล้ว **คืนก้อนที่ scatter ออกมา ไม่ใช่อ่าน state กลับ** — กันไม่ให้ผลถูกทิ้งอีก
+        k_new = torch.scatter(self.k[layer_idx], 2, index, k_state.to(self.k.dtype))
+        v_new = torch.scatter(self.v[layer_idx], 2, index, v_state.to(self.v.dtype))
+        self.k[layer_idx] = k_new
+        self.v[layer_idx] = v_new
+        # แคสต์กลับก่อนคืน — attention เอาไป matmul กับ q ที่เป็น fp16 ถ้าคืน fp32
+        # ดิบ ๆ torch จะตายตั้งแต่ตอน trace (`expected scalar type Half but found Float`)
+        return k_new.to(k_state.dtype), v_new.to(v_state.dtype)
 
     def get_seq_length(self, layer_idx=0):
         return 0
@@ -450,6 +501,32 @@ def _fp16_except_rmsnorm(op):
     return op.op_type not in RMSNORM_OPS
 
 
+def _assert_state_writes(package_path, min_writes=1):
+    """ตรวจว่ากราฟ *เขียน* KV cache จริง ไม่ใช่แค่อ่าน
+
+    ด่านนี้มีเพราะเคยเสียรอบแปลงเต็ม ๆ ไปฟรีมาแล้ว: การเขียนลง view ของ state
+    (`self.k[layer_idx].scatter_(...)`) ถูก coremltools ตัดทิ้งเป็น dead code
+    แปลงผ่านหมด ไม่มี error สักบรรทัด ได้ไฟล์ครบ แต่ cache เป็นศูนย์ตลอด
+    กว่าจะรู้ก็ตอนรันบนแมคแล้วเจอคำตอบเป็นขยะที่เหมือนกันทุก prompt
+
+    เช็กจากไบต์ของ .mlmodel ตรง ๆ ไม่ต้องโหลดโมเดล (Colab เป็น Linux โหลดไม่ได้)
+    ชื่อ op ฝังเป็นสตริงอยู่ใน protobuf อยู่แล้ว
+
+    จำนวนที่ควรได้คือ 2 x จำนวนชั้น (k กับ v ชั้นละครั้ง) — Qwen2.5-1.5B = 56
+    """
+    model_file = os.path.join(package_path, "Data", "com.apple.CoreML", "model.mlmodel")
+    with open(model_file, "rb") as handle:
+        blob = handle.read()
+    writes = blob.count(b"coreml_update_state")
+    reads = blob.count(b"read_state")
+    print(f"state: เขียน {writes} ครั้ง / อ่าน {reads} ครั้ง")
+    if writes < min_writes:
+        raise RuntimeError(
+            f"กราฟไม่ได้เขียน KV cache เลย (coreml_update_state = {writes}) — "
+            "โมเดลนี้ใช้ไม่ได้ ห้ามอัปโหลด ดูคอมเมนต์ใน FixedShapeKeyValueCache.update"
+        )
+
+
 class StatefulQwen(torch.nn.Module):
     """ห่อ Qwen ให้รับ causal mask ตรงๆ และอัปเดต cache เอง
 
@@ -468,7 +545,6 @@ class StatefulQwen(torch.nn.Module):
         head_dim = getattr(cfg, "head_dim", None) or (
             cfg.hidden_size // cfg.num_attention_heads
         )
-        dtype = next(model.parameters()).dtype
         self.cache_shape = (
             cfg.num_hidden_layers,
             1,
@@ -479,8 +555,20 @@ class StatefulQwen(torch.nn.Module):
 
         # buffer เป็นเจ้าของ tensor แต่ผู้เดียว ชื่อสองอันนี้ต้องตรงกับ
         # ct.StateType(name=...) ตอน convert และตรงกับที่ฝั่ง Swift เรียกใช้
-        self.register_buffer("keyCache", torch.zeros(self.cache_shape, dtype=dtype))
-        self.register_buffer("valueCache", torch.zeros(self.cache_shape, dtype=dtype))
+        #
+        # fp32 ทั้งที่โมเดลเป็น fp16 — ตั้งใจ ไม่ใช่พลาด กราฟที่ frontend ของ
+        # coremltools สร้างมองก้อนนี้เป็น fp32 (เห็นจาก error ของ scatter_along_axis
+        # ที่บอกว่า `data` เป็น fp32) การประกาศฝั่ง torch ให้ตรงกับที่กราฟเห็นจริง
+        # ทำให้แคสต์อยู่ที่เดียวคือตอนเขียนใน `update()` ไม่กระจายไปทั่ว
+        #
+        # ค่าที่ประกาศตรงนี้ไม่เกี่ยวกับ dtype ของ state ที่ออกไปถึงแอป — ตัวนั้นคุมด้วย
+        # ct.StateType(wrapped_type=...) ซึ่งยังเป็น fp16 ตามที่ Core ML บังคับ
+        self.register_buffer(
+            "keyCache", torch.zeros(self.cache_shape, dtype=torch.float32)
+        )
+        self.register_buffer(
+            "valueCache", torch.zeros(self.cache_shape, dtype=torch.float32)
+        )
 
         # object.__setattr__ ข้าม nn.Module.__setattr__ ไปเลย ทำให้ kv_cache
         # ไม่ถูกจดใน _modules — ไม่งั้น (เพราะ Cache สืบทอด nn.Module ตั้งแต่
@@ -527,8 +615,9 @@ if os.path.isdir(FP16_PATH):
     mlmodel = ct.models.MLModel(FP16_PATH, skip_model_load=True)
 else:
     # โหลดเป็น fp16 เพราะ **Core ML รับ state เป็น fp16 เท่านั้น**
-    # (`ValueError: State only support fp16 dtype`) buffer ที่ trace มาจึงต้องเป็น
-    # fp16 และเมื่อ buffer เป็น fp16 ตัวโมเดลก็ต้องเป็น fp16 ตาม
+    # (`ValueError: State only support fp16 dtype`) — ข้อบังคับนี้อยู่ที่
+    # ct.StateType ตอน convert ซึ่งยังเป็น fp16 อยู่ ส่วน buffer ฝั่ง torch
+    # ประกาศเป็น fp32 ให้ตรงกับที่กราฟของ frontend มองเห็น (ดู register_buffer)
     #
     # เคยลองเปลี่ยนเป็น fp32 ด้วยเหตุผลว่า PyTorch รัน fp16 บน CPU แล้วได้ NaN
     # (จริง — ดู verify_wrapper.py) แต่แนวทางนั้นตกไปสองชั้น: ct.convert ปฏิเสธ
@@ -688,6 +777,10 @@ else:
     del mlmodel
     gc.collect()
     mlmodel = ct.models.MLModel(FP16_PATH, skip_model_load=True)
+
+# ตรวจ **นอก** if/else โดยตั้งใจ — ทางที่ resume จาก checkpoint ก็ต้องโดนตรวจด้วย
+# ไม่งั้น checkpoint พัง ๆ ที่ค้างอยู่จะไหลผ่านไป quantize ได้เหมือนเดิม
+_assert_state_writes(FP16_PATH)
 
 
 # ── quantize ──────────────────────────────────────────────────────────────
