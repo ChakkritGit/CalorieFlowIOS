@@ -165,24 +165,39 @@ actor CoreMLBackend {
     /// รูปร่างของ input ตายตัวสองแบบตามที่โมเดลถูกแปลงมา — q เป็น 1 (decode) หรือ
     /// `prefillChunk` (prefill) เท่านั้น ก้อนที่สั้นกว่านั้นต้องเติมให้เต็มแล้วปิด
     /// ส่วนที่เติมด้วย mask ดูเหตุผลเต็มที่ `FixedShapeKeyValueCache` ใน convert.py
+    ///
+    /// **ช่องที่เติมต้องอยู่หัวก้อน ไม่ใช่ท้ายก้อน** — โมเดลคืน logits ของตำแหน่ง
+    /// สุดท้ายตำแหน่งเดียว (`logits[:, -1:, :]` ในสคริปต์แปลง) ถ้าเติมท้ายก้อน
+    /// ค่าที่ได้จะเป็นของช่อง padding ไม่ใช่ token จริงตัวสุดท้าย
+    ///
+    /// อาการตอนที่ยังเติมท้ายก้อน: decode ทีละ token (q = 1 ไม่มี padding) ยังถูก
+    /// แต่ prompt ที่ยาวกว่าหนึ่ง token ให้ผลเพี้ยนทั้งหมด คำตอบยังลื่นและเป็นภาษาไทย
+    /// ดีอยู่ — แค่ไม่เกี่ยวกับคำถาม เพราะ token แรกของคำตอบถูกเลือกจาก logits ของ
+    /// ช่องว่าง แล้วที่เหลือก็ต่อจากตัวนั้นไปอย่างสอดคล้องกันเอง
     private func predict(tokens: [Int], pastLength: Int, state: MLState) throws -> [Float] {
         let real = tokens.count
         // decode ใช้ 1 ส่วน prefill ใช้เต็มก้อนเสมอ ต่อให้ token จริงจะน้อยกว่า
         let q = real == 1 ? 1 : Self.prefillChunk
         precondition(real <= q, "ก้อนใหญ่กว่า prefillChunk")
+        let padding = q - real
 
         let inputIds = try MLMultiArray(shape: [1, NSNumber(value: q)], dataType: .int32)
         let positions = try MLMultiArray(shape: [1, NSNumber(value: q)], dataType: .int32)
         inputIds.withUnsafeMutableBufferPointer(ofType: Int32.self) { buffer, _ in
             for index in 0..<q {
                 // ช่องที่เติมใส่ token อะไรก็ได้ เพราะถูกปิดด้วย mask อยู่แล้ว
-                buffer[index] = Int32(index < real ? tokens[index] : 0)
+                buffer[index] = Int32(index < padding ? 0 : tokens[index - padding])
             }
         }
         positions.withUnsafeMutableBufferPointer(ofType: Int32.self) { buffer, _ in
             for index in 0..<q {
-                // ช่องที่เติมชี้ไปที่ตำแหน่งของตัวเอง จะได้ไม่ไปทับ cache ของ token จริง
-                buffer[index] = Int32(min(pastLength + index, Self.maxContext - 1))
+                // ช่องที่เติมเขียนลงสลอตสุดท้ายของ cache ซึ่งไม่มีใครอ่าน — บริบทไปไม่ถึง
+                // เพราะ `generate` หยุดก่อนที่ `past + 1` จะแตะ maxContext
+                buffer[index] = Int32(
+                    index < padding
+                        ? Self.maxContext - 1
+                        : min(pastLength + index - padding, Self.maxContext - 1)
+                )
             }
         }
 
@@ -194,8 +209,8 @@ actor CoreMLBackend {
         mask.withUnsafeMutableBytes { raw, _ in
             let buffer = raw.bindMemory(to: UInt16.self)
             for row in 0..<q {
-                let visible = pastLength + row
-                let rowIsReal = row < real
+                let rowIsReal = row >= padding
+                let visible = pastLength + row - padding
                 for column in 0..<Self.maxContext {
                     // แถวที่เติมเข้ามาปิดทั้งแถว ส่วนแถวจริงเปิดถึงตำแหน่งของตัวเอง
                     // ช่อง cache ที่ยังไม่เคยเขียนก็ถูกปิดด้วยเงื่อนไขเดียวกันนี้
