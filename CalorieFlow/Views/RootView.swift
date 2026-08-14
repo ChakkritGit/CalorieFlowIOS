@@ -45,6 +45,10 @@ struct RootView: View {
             AddFoodView()
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
+                // ไม่งั้นขอบล่างของ sheet จะเป็นสีพื้นระบบ (เทาเข้ม) โผล่มาคาดอยู่
+                // ใต้เนื้อหา เพราะพื้นหลังของ `ScreenScroll` ทาแค่ในกรอบ scroll view
+                // ส่วนตัว sheet เองมีสีพื้นของมันเอง
+                .presentationBackground(Palette.background)
         }
         .onReceive(midnightTick) { _ in store.refreshTodayIfNeeded() }
         .onChange(of: scenePhase) { _, phase in
@@ -149,8 +153,12 @@ struct ScreenScroll<Content: View>: View {
         //
         // เคยลอง `.simultaneousGesture(TapGesture())` ที่ตัว ScrollView แล้วไม่ทำงาน
         // จริงบนเครื่อง เพราะ gesture ของ ScrollView กินไปก่อน
+        // `ignoresSafeArea` เพื่อให้สีทาไปถึงใต้ status bar ด้วย ไม่งั้นแถบบนจะเป็น
+        // สีของ window ซึ่งเป็นดำในโหมดมืด ตัดกับพื้นหลังของแอปที่เป็นน้ำเงินเข้ม
+        // เห็นเป็นแถบดำคาดอยู่ด้านบน
         .background(
             Palette.background
+                .ignoresSafeArea()
                 .onTapGesture { hideKeyboard() }
         )
     }
@@ -186,8 +194,12 @@ struct SettingsDetailScreen<Content: View>: View {
         }
         .scrollIndicators(.hidden)
         .scrollDismissesKeyboard(.immediately)
+        // `ignoresSafeArea` เพื่อให้สีทาไปถึงใต้ status bar ด้วย ไม่งั้นแถบบนจะเป็น
+        // สีของ window ซึ่งเป็นดำในโหมดมืด ตัดกับพื้นหลังของแอปที่เป็นน้ำเงินเข้ม
+        // เห็นเป็นแถบดำคาดอยู่ด้านบน
         .background(
             Palette.background
+                .ignoresSafeArea()
                 .onTapGesture { hideKeyboard() }
         )
         .navigationTitle("")
