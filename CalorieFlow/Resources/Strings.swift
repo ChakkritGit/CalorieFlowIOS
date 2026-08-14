@@ -355,8 +355,8 @@ struct L10n {
             return s("โมเดลกำลังดาวน์โหลด ลองใหม่อีกครั้งภายหลัง",
                      "The model is still downloading — try again later")
         case "coreMLUnusable":
-            return s("โมเดลในเครื่องรันไม่ได้บนอุปกรณ์นี้ — simulator ไม่มีเอนจิน MPSGraph ต้องทดสอบบนเครื่องจริง",
-                     "The on-device model can't run here — the simulator has no MPSGraph engine, so try a real device")
+            return s("โมเดลในเครื่องรันบนอุปกรณ์นี้ไม่ได้ (Core ML สร้างแผนประมวลผลไม่สำเร็จ) กำลังใช้คำแนะนำแบบกฎแทน",
+                     "The on-device model can't run on this device — Core ML couldn't build an execution plan. Using rule-based advice instead")
         default:
             return s("ใช้ AI ไม่ได้ในขณะนี้", "AI is unavailable right now")
         }

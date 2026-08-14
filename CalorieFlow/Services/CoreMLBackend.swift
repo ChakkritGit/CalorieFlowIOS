@@ -84,11 +84,16 @@ actor CoreMLBackend {
         configuration.computeUnits = Self.computeUnits
 
         // คร่อมการโหลดด้วย ไม่ใช่แค่ตอน predict — `MLModel.load` คือขั้นที่ Core ML
-        // สร้าง execution plan ซึ่งเป็นจุดที่เคยล้มมาแล้ว (error -14 บน simulator)
-        // และล้มแบบ assert ได้เหมือนกัน
+        // สร้าง execution plan ซึ่งเป็นจุดที่ล้มจริง (error -14) และล้มแบบ assert ได้ด้วย
+        //
+        // ถอนธงด้วย `defer` — เดิมเรียก `clearInFlight()` เป็นบรรทัดถัดจาก `try`
+        // ซึ่งถูกข้ามไปทั้งบรรทัดเมื่อโหลดโยน error ธงจึงค้างอยู่ทั้งที่แอปไม่ได้ตาย
+        // รอบเปิดถัดไปเลยเข้าใจว่าแครชแล้วปิดโมเดลทิ้ง พอรอบนั้นเคลียร์ธงให้ รอบถัดไป
+        // ก็ลองโหลดใหม่แล้วค้างธงอีก — อาการจึงสลับ "โหลดไม่ได้" กับ "ยังไม่พร้อม"
+        // ไปมาทุกครั้งที่เปิดแอป ซึ่งทำให้ไล่หาสาเหตุจริงยากมาก
         ModelStore.markInFlight()
+        defer { ModelStore.clearInFlight() }
         model = try await MLModel.load(contentsOf: modelURL, configuration: configuration)
-        ModelStore.clearInFlight()
 
         // อ่านสอง json เข้ามาเองแทนที่จะใช้ `AutoTokenizer.from(modelFolder:)`
         // เพราะตัวนั้นบังคับให้มี `config.json` ของโมเดล PyTorch อยู่ในโฟลเดอร์ด้วย
