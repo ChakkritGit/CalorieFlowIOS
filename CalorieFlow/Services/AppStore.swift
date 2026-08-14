@@ -160,7 +160,15 @@ final class AppStore {
         var maxStreak: Int
     }
 
-    func wrappedData(for year: Int = Calendar.current.component(.year, from: .now)) -> WrappedData {
+    /// ปีต้องอ่านด้วยปฏิทินเกรกอเรียน ไม่ใช่ `Calendar.current` — เครื่องที่ตั้งภูมิภาค
+    /// ไทยใช้ปฏิทินพุทธเป็นค่าเริ่มต้น `Calendar.current.component(.year,)` จึงคืน 2569
+    /// ขณะที่คีย์ของ log เป็น "2026-.." (ดู `DateKey` ที่ล็อกเกรกอเรียนไว้แล้ว) ตัวกรอง
+    /// จึงไม่แมตช์อะไรเลยและหน้า Wrapped ขึ้นศูนย์ทั้งหน้าสำหรับผู้ใช้ไทยทุกคน
+    static var currentYear: Int {
+        Calendar(identifier: .gregorian).component(.year, from: .now)
+    }
+
+    func wrappedData(for year: Int = AppStore.currentYear) -> WrappedData {
         let yearLogs = logs.values.filter { $0.date.hasPrefix(String(year)) }
         var counts: [String: Int] = [:]
         var totalCalories = 0

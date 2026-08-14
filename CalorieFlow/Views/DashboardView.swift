@@ -14,7 +14,7 @@ struct DashboardView: View {
     @FocusState private var waterFieldFocused: Bool
 
     private var isDecember: Bool { Calendar.current.component(.month, from: .now) == 12 }
-    private var currentYear: Int { Calendar.current.component(.year, from: .now) }
+    private var currentYear: Int { AppStore.currentYear }
 
     var body: some View {
         ScreenScroll {
@@ -358,7 +358,12 @@ struct DashboardView: View {
 
 extension Double {
     /// ตัด ".0" ออกเมื่อเป็นจำนวนเต็ม — 70.0 → "70", 70.5 → "70.5"
+    ///
+    /// `Int(Double)` **trap** เมื่อค่าเกิน `Int.max` หรือเป็น inf/nan ซึ่งไม่ใช่กรณี
+    /// สมมติ — ช่องน้ำหนักรับค่าที่กรองแค่ `> 0` แล้วเขียนลงดิสก์ก่อนจะถูกวาด
+    /// ค่าเดียวจึงทำให้แอปแครชตั้งแต่เปิดทุกครั้งโดยไม่มีหน้าไหนให้เข้าไปแก้
     var clean: String {
-        self == rounded() ? String(Int(self)) : String(format: "%.1f", self)
+        guard isFinite, magnitude < 1e15 else { return String(format: "%.0f", self) }
+        return self == rounded() ? String(Int(self)) : String(format: "%.1f", self)
     }
 }

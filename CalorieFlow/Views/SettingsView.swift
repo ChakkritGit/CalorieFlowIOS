@@ -173,7 +173,9 @@ private struct ProfileSettingsView: View {
                     numberField(
                         value: Binding(
                             get: { Double(store.user.age) },
-                            set: { a in store.updateProfile { $0.age = Int(a) } }
+                            // หนีบก่อนแปลงเป็น Int — `Int(Double)` trap เมื่อค่าเกินช่วง
+                            // และช่องนี้เป็น numberPad ที่พิมพ์กี่หลักก็ได้
+                            set: { a in store.updateProfile { $0.age = Int(min(max(a, 0), 120)) } }
                         ),
                         decimals: 0
                     )
@@ -243,7 +245,9 @@ private struct ProfileSettingsView: View {
 
     /// น้ำหนักที่กรอกใช้ได้จริงหรือยัง — ใช้ทั้งกันการบันทึกและหรี่ปุ่มให้เห็นล่วงหน้า
     private var pendingWeight: Double? {
-        guard let weight = Double(newWeight), weight > 0 else { return nil }
+        // ต้องมีเพดานด้วย ไม่ใช่แค่ > 0 — ค่าที่เกินช่วงของ `Int` ถูกบันทึกลงดิสก์ก่อน
+        // ที่จะถูกวาด แล้วทำให้แอปแครชตั้งแต่เปิดตลอดไป (ดู `Double.clean`)
+        guard let weight = Double(newWeight), weight > 0, weight <= 650 else { return nil }
         return weight
     }
 
