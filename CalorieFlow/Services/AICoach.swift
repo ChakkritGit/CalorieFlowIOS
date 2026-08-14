@@ -269,22 +269,25 @@ final class AICoach {
         }
 
         // Core ML ไม่มีเซสชันในตัว จึงต้องส่งบทสนทนาที่ผ่านมาไปใหม่ทุกครั้ง
+        //
+        // ยุบประวัติเป็น *ข้อความบรรยาย* ใน system prompt ไม่ส่งเป็นเทิร์นจริงผ่าน
+        // `history:` — โมเดล 1.5B เห็น assistant turn ปิดท้ายอยู่ในเทมเพลตแล้วสรุปว่า
+        // บทสนทนาจบ แล้วตอบ `<|im_end|>` ทันทีตั้งแต่ token แรก (วัดแล้วนำอันดับสอง
+        // อยู่สองแต้ม) หน้าแชทจึงได้ข้อความว่างตั้งแต่คำถามที่สองเป็นต้นไป
+        //
         // ตัดเหลือหกเทิร์นล่าสุดกันไม่ให้ prompt ยาวเกินหน้าต่างบริบท
         if let backend = await coreML() {
-            let history = chat.dropLast().suffix(6).map { message in
-                (role: message.role == .user ? "user" : "assistant", text: message.text)
-            }
             let instructions = """
             \(t.aiSystemInstructions)
 
             \(t.aiChatInstructions)
 
             \(contextBlock(context, t))
+            \(chatHistoryBlock(t))
             """
             do {
                 let text = try await backend.respond(
                     instructions: instructions,
-                    history: Array(history),
                     prompt: question,
                     // หน้าแชทผู้ใช้นั่งรออยู่ตรงหน้า ยาวกว่านี้คือรอนานขึ้นตรง ๆ
                     maxNewTokens: 150
@@ -310,6 +313,37 @@ final class AICoach {
     }
 
     // MARK: - Shared
+
+    /// ประวัติแชทที่ยุบเป็นข้อความบรรยาย ต่อท้าย system prompt
+    ///
+    /// **เก็บเฉพาะสิ่งที่ผู้ใช้พูด ทิ้งคำตอบของโค้ชทั้งหมด** — วัดจากโมเดลจริงแล้ว
+    /// การมีบรรทัดของโค้ชอยู่ในประวัติทำให้มันสรุปว่าตอบไปแล้ว แล้วเลือก `<|im_end|>`
+    /// เป็น token แรก เทียบ margin ของ `<|im_end|>` เหนือ token ข้อความที่ดีที่สุด:
+    ///
+    ///     ไม่มีประวัติเลย            -3.23   ยอมพูด
+    ///     ประวัติผู้ใช้+โค้ช          +2.72   อยากหยุด (หรือไล่เขียน bullet ต่อ)
+    ///     เฉพาะสิ่งที่ผู้ใช้บอก       -2.30   ยอมพูด
+    ///     เล่าเป็นความจำของโค้ช      +5.46   แย่ที่สุด
+    ///
+    /// ที่เสียไปคือโค้ชจำคำตอบตัวเองไม่ได้ ซึ่งรับได้กว่าการตอบว่าง และคำถามของผู้ใช้
+    /// มักมีบริบทที่ต้องใช้อยู่แล้ว
+    ///
+    /// **เขียนเป็นบรรทัดเดียว ห้ามทำเป็นรายการ bullet** — วัดด้วยชุดเดียวกันแล้ว
+    /// การขึ้นหัวข้อแล้วไล่ bullet ทำให้ margin กลับไปเป็น +0.48 (โมเดลอ่านว่าเป็น
+    /// รายการที่กำลังเขียนอยู่ แล้วเลือกจะปิดหรือเขียน bullet ต่อ) ส่วนบรรทัดเดียว
+    /// ได้ -3.05 ซึ่งเกือบเท่ากับตอนไม่มีประวัติเลย
+    ///
+    /// เทิร์นสุดท้ายคือคำถามที่กำลังจะส่ง จึงตัดด้วย `dropLast()` ไม่งั้นโมเดลเห็นซ้ำสองที่
+    @MainActor
+    private func chatHistoryBlock(_ t: L10n) -> String {
+        let said = chat.dropLast().suffix(6).filter { $0.role == .user }
+        guard !said.isEmpty else { return "" }
+
+        return """
+
+        \(t.aiPromptChatHistoryHeader): \(said.map(\.text).joined(separator: " · "))
+        """
+    }
 
     private func contextBlock(_ c: AdviceContext, _ t: L10n) -> String {
         """

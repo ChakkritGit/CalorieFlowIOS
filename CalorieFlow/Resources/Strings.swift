@@ -392,6 +392,9 @@ struct L10n {
     }
 
     var aiPromptContextHeader: String { s("ข้อมูลผู้ใช้ปัจจุบัน", "Current user data") }
+    var aiPromptChatHistoryHeader: String {
+        s("สิ่งที่ผู้ใช้เล่าไว้ก่อนหน้านี้", "What the user mentioned earlier")
+    }
     var aiPromptWeekHeader: String { s("ข้อมูล 7 วันล่าสุด (เก่าไปใหม่)", "Last 7 days (oldest to newest)") }
     var aiPromptGoalField: String { s("เป้าหมาย", "Goal") }
     var aiPromptTargetField: String { s("เป้าหมายต่อวัน", "Daily target") }

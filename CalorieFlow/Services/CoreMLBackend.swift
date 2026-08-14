@@ -161,12 +161,8 @@ actor CoreMLBackend {
         var generated: [Int] = []
         var stoppedOnItsOwn = false
 
-        for step in 0..<maxNewTokens {
-            // ก้าวแรกห้ามหยุด — โมเดล 1.5B ชอบปิดเทิร์นทันทีเมื่อ prompt มี assistant
-            // turn อยู่ใน history (วัดแล้ว `<|im_end|>` มาเป็นอันดับหนึ่งที่ 15.34 นำ
-            // อันดับสองอยู่สองแต้ม) หน้าแชทจึงได้ข้อความว่างตั้งแต่คำถามที่สองเป็นต้นไป
-            // บังคับให้พูดอย่างน้อยหนึ่ง token แล้วปล่อยให้หยุดเองตามปกติหลังจากนั้น
-            let next = sample(from: logits, allowStop: step > 0)
+        for _ in 0..<maxNewTokens {
+            let next = sample(from: logits)
 
             // หยุดที่ control token **ทุกตัว** ไม่ใช่แค่ `<|im_end|>` กับ eos —
             // sampling หยิบตัวอื่นในช่วงนั้นได้จริง แล้ว `decode` ก็พ่นออกมาเป็น
@@ -310,17 +306,10 @@ actor CoreMLBackend {
     /// ไม่ใช้ greedy (argmax) เพราะการ์ดคำแนะนำประจำวันจะได้ข้อความเดิมเป๊ะทุกวัน
     /// ถ้าบริบทไม่เปลี่ยน ค่า temperature ต่ำไว้เพื่อไม่ให้โมเดลเล็กหลุดประเด็น
     ///
-    /// - Parameter allowStop: `false` แล้วจะไม่หยิบ control token มาเลย ใช้กับก้าวแรก
-    ///
     /// **เลือก k ตัวบนโดยไม่เรียงทั้งก้อน** — vocab มี 151,936 ตัว การ `sorted()`
     /// ทั้งก้อนเพื่อเอา 40 ตัวแรกเสียเวลา 11.3 ms ต่อ token บนแมค (วัดแล้ว) ส่วน
     /// วิธีนี้ 0.1 ms ต่างกันร้อยเท่า และเป็นต้นทุนที่จ่ายทุก token ตลอดคำตอบ
-    private func sample(
-        from logits: [Float],
-        allowStop: Bool = true,
-        temperature: Float = 0.7,
-        topK: Int = 40
-    ) -> Int {
+    private func sample(from logits: [Float], temperature: Float = 0.7, topK: Int = 40) -> Int {
         guard !logits.isEmpty else { return endOfTurn }
 
         // กองที่เรียงจากมากไปน้อยเสมอ ยาวไม่เกิน topK — ตัวที่น้อยกว่าท้ายกองข้ามได้เลย
@@ -328,7 +317,6 @@ actor CoreMLBackend {
         top.reserveCapacity(topK)
 
         for (token, logit) in logits.enumerated() {
-            if !allowStop && token >= firstControlToken { continue }
             if top.count == topK {
                 guard logit > top[topK - 1].logit else { continue }
                 top.removeLast()
