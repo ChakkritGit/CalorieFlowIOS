@@ -8,133 +8,178 @@
 
 - ต้นฉบับเว็บ: https://github.com/ChakkritGit/CalorieFlow
 - ปลายทาง iOS: https://github.com/ChakkritGit/CalorieFlowIOS
-- **ย้ายมาทำงานบน macOS แล้ว** (Xcode 27 beta อยู่ที่ `/Applications/Xcode-beta.app`)
+- โมเดลที่โฮสต์ไว้: https://huggingface.co/Chakkrit25/calorieflow-qwen
+- **ทำงานบน macOS** (Xcode 27 beta อยู่ที่ `/Applications/Xcode-beta.app`)
   ยังไม่ได้ `xcode-select` ต้องสั่ง build ด้วย
   `DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer xcodebuild ...`
 
-## เสร็จแล้ว
+### ของอยู่ที่ไหน
 
-| commit | เนื้อหา |
+| ที่ | อะไร |
 | --- | --- |
-| `4c9d06e` | พอร์ตทั้งแอปจากเว็บเป็น SwiftUI ครบทุกฟีเจอร์ |
-| `9f5e39b` | `TabView` + ระบบธีม + ระบบภาษา |
-| `da073da` | AI coach ด้วย Foundation Models + fallback แบบกฎธรรมดา |
-| `61632bf` | `.gitignore` กันไฟล์โมเดล Core ML |
-| (รอบนี้) | build ผ่านครั้งแรก + Core ML backend + สคริปต์แปลงโมเดลตัวใหม่ |
+| `otherData/` | สคริปต์แปลงโมเดลกับเครื่องมือไล่บั๊กทั้งหมด (`convert.py`, `debug_*.py`, `verify_wrapper.py`) |
+| `LLM/` | **ผลลัพธ์** ที่เอาไปอัป HF — `Qwen-int8.mlpackage.zip`, tokenizer สองไฟล์ |
+| `/tmp/qwencheck` | ตัวรันฝั่งแมค ใช้ `CoreMLBackend.swift` ตัวจริงผ่าน symlink |
 
-**build ผ่านแล้ว** — ความเสี่ยงข้อใหญ่ที่ค้างมาจาก session ก่อนหมดไป
-`AICoach.swift` ที่เขียน FoundationModels API จากความจำคอมไพล์ผ่านโดยไม่ต้องแก้อะไรเลย
-เช่นเดียวกับ pbxproj ที่เขียนมือ, Swift Charts, และ `@Bindable`
+ทั้ง `otherData/` และ `LLM/` อยู่ที่ราก repo **ห้ามย้ายเข้า `CalorieFlow/`** เพราะโฟลเดอร์นั้น
+เป็น synchronized root group ของ target อะไรที่วางไว้จะถูกยัดเข้า `.app` อัตโนมัติ
+(ตอนที่โมเดลเคยอยู่ในนั้น แอปบวมจาก 8 MB เป็น 2.9 GB)
 
-## ค้างอยู่ — งานถัดไป
+## สถานะ: โมเดลใช้งานได้แล้ว ยังไม่ได้ทดสอบบนเครื่องจริง
 
-### 1. โมเดลใช้งานได้แล้ว — ใช้ int8
-
-`LLM/Qwen-int8.mlpackage` (1.66 GB) คือตัวที่ควรใช้ ราว 6.4 token/วินาที บน
-M-series ทดสอบด้วย `/tmp/qwencheck` ซึ่งใช้ `CoreMLBackend.swift` ตัวจริง
-
-int8 แม่นกว่า int4 ชัดเจน เทียบ logits กับ PyTorch ที่ token เดียวกัน:
+กราฟรุ่นปัจจุบัน (`GRAPH_REV = 2`) ผ่านการวัดบนแมคแล้ว เทียบ logits กับ PyTorch
+ที่ token เดียวกัน **ตรงทั้งสี่เคส** คลาดไม่เกิน 0.15
 
 | | 1 tok | 2 tok | 3 tok | 5 tok |
 | --- | --- | --- | --- | --- |
-| int4 | `" steps"` ผิด | 18.72 | 19.50 | 20.83 |
-| int8 | `" following"` 20.14 | 20.83 | 19.30 | 19.86 |
+| Core ML int8 | 20.14 | 20.83 | 19.30 | 19.84 |
 | PyTorch | 20.24 | 20.98 | 19.31 | 19.84 |
 
-int8 คลาดเคลื่อนไม่เกิน 0.15 ทุกเคส **และปิดปมที่ค้างมานาน — เคส 1 token ที่
-int4 ตอบผิดตลอด ไม่ใช่บั๊ก แต่เป็นความคลาดเคลื่อนของ 4 บิตล้วน ๆ**
+ภาษาไทยตอบตรงคำถาม (`ข้าวมันไก่หนึ่งจานประมาณกี่แคลอรี่` → `จานประมาณ 200-250แคลอรี่`
+ของจริงราว 600 — ยังไม่แม่นแต่รูปแบบใช้ได้) ความเร็ว 8-23 tok/s บนแมค
 
-ภาษาไทยต่างกันจนใช้ตัดสินใจได้:
+ยังพลาดคำถามนอกโดเมน — `เมืองหลวงของฝรั่งเศส` ได้ `หลวงของคุณคือโค้ชโภชนาการ` คือ
+system prompt รั่ว เป็นข้อจำกัดของโมเดล 1.5B ไม่ใช่เรื่องการแปลง และอยู่นอกขอบเขตแอปอยู่แล้ว
 
-    ถาม  ข้าวมันไก่หนึ่งจานประมาณกี่แคลอรี่
-    int4 ประมาณ 1.5 แคลอรี
-    int8 จานประมาณ 200-250 แคลอรี่
+**int8 เท่านั้น** int4 ตกไปแล้ว — เคส 1 token ตอบผิดตลอด และภาษาไทยได้
+`ข้าวมันไก่ ประมาณ 1.5 แคลอรี` แล้ววนซ้ำจนใช้ไม่ได้ ความคลาดเคลื่อนของ 4 บิตล้วน ๆ
 
-ยังไม่ถึงขั้นแม่น (ของจริงราว 600) แต่รูปแบบใช้ได้และคำแนะนำมื้ออาหารต่อเนื่อง
-ตรงประเด็น ส่วน int4 วนซ้ำจนใช้ไม่ได้
+> ⚠️ `otherData/convert.py:229` ยังเป็น `QUANT_DTYPE = "int4"` — รอบล่าสุดแก้เป็น
+> `"int8"` เฉพาะใน Colab ไม่ได้แก้กลับมาที่ repo **ต้องเปลี่ยนก่อนรันรอบหน้า**
 
-ถ้าอยากได้ไทยดีกว่านี้อีก ขั้นถัดไปคือ `EMBEDDING_POLICY = "untie"` (เว้น
-embedding ไว้ที่ fp16 ช่วยภาษาที่ token ยาว) แลกกับอีกราว 0.4 GB
+## งานถัดไป
 
-ทั้งสองรุ่นยังพลาดคำถามนอกโดเมน — `เมืองหลวงของฝรั่งเศส` ได้ `หลวงของคุณคือ
-โค้ชโภชนาการ` คือ system prompt รั่วเข้ามา เป็นข้อจำกัดของโมเดล 1.5B ไม่ใช่
-เรื่องการแปลง และอยู่นอกขอบเขตของแอปอยู่แล้ว
+1. **ทดสอบบนเครื่องจริง** — ยังไม่เคยรัน `CoreMLBackend` สำเร็จบนเครื่อง (แรมตอน
+   inference, ความเร็ว ANE) ต้องลบโมเดลเดิมในแอปก่อนแล้วโหลดใหม่ ไม่งั้นมันเห็นว่า
+   มีอยู่แล้วและข้ามไป และต้องใช้แอปที่บิลด์จาก `9c21fad` ขึ้นไป — โมเดลใหม่กับโค้ด
+   padding ใหม่ต้องมาคู่กัน
+2. **`computeUnits` ยังไม่ชัด** — `CoreMLBackend` ตั้ง `.cpuAndNeuralEngine` ไว้
+   บนแมคค่านี้ให้ error -14 (สร้าง execution plan ไม่ได้) ต้องใช้ `.all` แทน
+   บนเครื่องจริงยังไม่รู้ ถ้าพังตรงนี้ให้ลอง `.all` เป็นตัวแรก
+3. **ฟอนต์ Anuphan** — ถ้าอยากให้ตรงกับเว็บเป๊ะ ต้องเพิ่ม `INFOPLIST_KEY_UIAppFonts`
 
-### กว่าจะได้โมเดลที่ใช้งานได้ — สี่บั๊กที่ต้องแก้ทั้งหมด
+## หกบั๊กที่ต้องแก้กว่าจะได้โมเดลที่ใช้งานได้
 
 ทุกข้อพังแบบเงียบ ไม่มี error ให้เห็นสักบรรทัด รายละเอียดเต็มอยู่ในคอมเมนต์ของ
-`LLM/convert.py` ตรงจุดที่แก้
+`otherData/convert.py` ตรงจุดที่แก้
 
-| อาการ | ต้นเหตุ |
+| อาการ | ต้นเหตุ | แก้ที่ |
+| --- | --- | --- |
+| ป้อน token เดียวพอได้ เกินหนึ่งพัง | ตาราง cos/sin ของ RoPE ถูก quantize ไปด้วย | `convert.py` |
+| ผลเปลี่ยนตาม computeUnits | attention score ล้น fp16 ตอน matmul — ย้ายการหารไปก่อน matmul | `convert.py` |
+| ยังพ่นขยะทั้งที่ PyTorch fp16 ตอบถูก | coremltools ลด RMSNorm ที่ transformers ตั้งใจให้เป็น fp32 | `convert.py` |
+| decode ก้าวที่ 3 เป็นต้นไปผิด / MPSGraph assert ตายบนเครื่องจริง | Core ML ใช้แผนที่ specialize ตามรูปร่างซ้ำ | `convert.py` — **แก้ที่ต้นเหตุแล้ว** |
+| คำตอบเป็นขยะและ *เหมือนกันทุก prompt* | กราฟไม่เขียน KV cache เลย | `convert.py` |
+| คำตอบลื่นแต่ไม่เกี่ยวกับคำถาม | padding ของ prefill อยู่ผิดด้าน | `CoreMLBackend.swift` |
+
+### ข้อ 4 — ตัดมิติที่เปลี่ยนได้ทิ้งทั้งหมด
+
+เดิมแก้ด้วยการแทรกการเรียกรูปร่างอื่นคั่นทุกก้าวเพื่อล้าง specialization ซึ่งจ่ายด้วย
+ความเร็วครึ่งหนึ่ง และยังไม่รอดบนเครื่องจริง (MPSGraph แก้มิติไม่ออกแล้ว assert ตาย
+ทั้งโปรเซส `Failed to resolve dynamic dimension 3 (got -9223372036854775808)`
+ซึ่งไม่ใช่ throw จึง `try?` รับไม่ได้)
+
+รุ่นปัจจุบันตัดต้นเหตุทิ้ง — ตำแหน่งเขียน cache มาจาก **input** `position_ids`
+ไม่ใช่จากรูปร่าง, อ่าน cache คืนทั้งก้อน `MAX_CONTEXT` เสมอ, และใช้ `EnumeratedShapes`
+แค่สองรูป (q = 1 กับ q = 128) mask กว้าง 2304 คงที่ ไม่เหลืออะไรให้ Core ML ต้องเดา
+`breakShapeSpecialization()` ถูกลบไปแล้ว
+
+### ข้อ 5 — เขียน state ต้องให้ coremltools เห็น
+
+`self.k[layer_idx].scatter_(...)` ถูกทุกอย่างในสายตา torch แต่ฝั่ง MIL คือการเขียนลง
+*view* แล้วทิ้ง พอ `update()` ไปอ่าน state กลับมาคืนอีกที ผลของ scatter ไม่มีใครใช้
+coremltools จึงตัดทิ้งเป็น dead code — แปลงผ่านหมด ได้ไฟล์ครบ แต่ cache เป็นศูนย์ตลอด
+
+ต้อง scatter แบบ functional → เขียนกลับด้วย `self.k[layer_idx] = k_new` → **คืนก้อนที่
+scatter ออกมา ไม่ใช่อ่าน state กลับ**
+
+### ข้อ 6 — padding ของ prefill ต้องอยู่หัวก้อน
+
+โมเดลคืน logits ของตำแหน่งสุดท้ายตำแหน่งเดียว (`logits[:, -1:, :]`) ก้อน prefill ที่สั้น
+กว่า 128 ถ้าเติม padding ท้ายก้อน ค่าที่อ่านได้จะเป็นของช่องว่าง decode ไม่โดนเพราะ
+q = 1 ไม่มี padding — อาการจึงเป็น "คำตอบลื่นและเป็นภาษาไทยดี แต่ไม่เกี่ยวกับคำถาม"
+เพราะ token แรกถูกเลือกจากขยะแล้วที่เหลือต่อจากตัวนั้นอย่างสอดคล้องกันเอง
+
+## ด่านกันเสียรอบ
+
+รอบแปลงเต็มกินเวลานาน และบั๊กสองข้อล่าสุดพังแบบเงียบทั้งคู่ จึงมีด่านสองชั้นในสคริปต์
+
+| ด่าน | กันอะไร |
 | --- | --- |
-| ป้อน token เดียวพอได้ เกินหนึ่งพัง | ตาราง cos/sin ของ RoPE ถูก quantize ไปด้วย |
-| ผลเปลี่ยนตาม computeUnits | attention score ล้น fp16 ตอน matmul — ย้ายการหารไปก่อน matmul |
-| ยังพ่นขยะทั้งที่ PyTorch fp16 ตอบถูก | coremltools ลด RMSNorm ที่ transformers ตั้งใจให้เป็น fp32 |
-| decode ก้าวที่ 3 เป็นต้นไปผิด | Core ML ใช้แผนที่ specialize ตามรูปร่างซ้ำ ดู `breakShapeSpecialization()` |
+| `_assert_state_writes()` | นับ `coreml_update_state` จากไบต์ของ `.mlmodel` ตรง ๆ ถ้าเป็น 0 ก็ raise ทันทีหลังเซฟ fp16 checkpoint ไม่ต้องรอ quantize ควรได้ 56 (28 ชั้น × k/v) — เรียก **นอก** `if/else` เพื่อให้ทางที่ resume จาก checkpoint โดนตรวจด้วย |
+| `GRAPH_REV` ในชื่อ checkpoint | **บวกเลขนี้ทุกครั้งที่แก้ `StatefulQwen` หรือ `FixedShapeKeyValueCache`** เคยเสียรอบมาแล้วเพราะแก้โค้ดสร้างกราฟโดยค่าคงที่ไม่เปลี่ยน สคริปต์เจอ checkpoint ชื่อเดิมเลยข้าม trace/convert ไป quantize ก้อนเก่าซ้ำ ได้ไฟล์เหมือนเดิมทุกไบต์ |
 
-ข้อสุดท้ายยังไม่ได้แก้ที่ต้นเหตุ — ใช้วิธีแทรกการเรียกรูปร่างอื่นคั่นทุกก้าว
-ซึ่งจ่ายด้วยความเร็วครึ่งหนึ่ง ถ้าจะแก้จริงต้องออกแบบกราฟใหม่ให้ decode ไม่มี
-มิติที่เปลี่ยนได้เลย (mask กว้างคงที่ 2304 + ส่งตำแหน่งเข้ามาเป็น input)
+เช็กเร็ว ๆ ว่าไฟล์ที่ได้ใช้ได้ไหม โดยไม่ต้องรันโมเดล:
 
-### เครื่องมือทดสอบที่ใช้ไล่บั๊กพวกนี้
+```bash
+python3 -c "b=open('LLM/Qwen-int8.mlpackage/Data/com.apple.CoreML/model.mlmodel','rb').read(); print(b.count(b'coreml_update_state'))"
+```
 
-อยู่ใน `LLM/` ทั้งหมด เก็บไว้เพราะถ้าแตะ `convert.py` อีกจะต้องใช้ซ้ำ
+## เครื่องมือทดสอบ
+
+อยู่ใน `otherData/` ทั้งหมด เก็บไว้เพราะถ้าแตะ `convert.py` อีกจะต้องใช้ซ้ำ
 
 | ไฟล์ | ใช้ตอนไหน |
 | --- | --- |
 | `verify_wrapper.py` | เทียบ `StatefulQwen` กับ transformers ธรรมดา ระดับ PyTorch |
 | `reference_logits.py` | ดึง logits อ้างอิงจาก PyTorch สำหรับ token id ที่กำหนด |
 | `debug_rope.py` | แยก layer 0 ออกมาแปลงเดี่ยว เทียบ Q/K หลัง RoPE |
-| `debug_layers.py` | attention 2 ชั้นใช้ cache ก้อนเดียวกัน — repro ขนาด 37 MB |
+| `debug_layers.py` | attention 2 ชั้นใช้ cache ก้อนเดียวกัน — repro ขนาด 37 MB (**ยังใช้ cache รุ่นเก่า ต้องซิงก์ก่อนใช้**) |
 
-`/tmp/qwencheck` เป็นตัวรันฝั่งแมค ใช้ `CoreMLBackend.swift` ผ่าน symlink จึง
-ทดสอบโค้ดตัวจริง ไม่ใช่โค้ดที่เขียนเลียนแบบ
+`/tmp/qwencheck` เป็นตัวรันฝั่งแมค ใช้ `CoreMLBackend.swift` ผ่าน symlink จึงทดสอบ
+โค้ดตัวจริง ไม่ใช่โค้ดที่เขียนเลียนแบบ (ยกเว้น `predict` ที่ทำซ้ำไว้เพื่ออ่าน logits ดิบ
+— ถ้าแก้ `CoreMLBackend.predict` ต้องแก้ตรงนั้นให้ตรงกันด้วย)
 
-### 2. ตัวดาวน์โหลดโมเดล — ทำแล้ว เหลือแค่ URL
+```bash
+cd /tmp/qwencheck
+DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer swift build -c release
+./.build/release/qwencheck Qwen-int8.mlmodelc all      # all เพราะ ANE บนแมคให้ error -14
+```
 
-`Services/ModelDownloader.swift` + `Views/ModelDownloadView.swift` เข้าถึงได้จาก
-หน้าตั้งค่า ทำงานครบทั้งเช็กพื้นที่ว่าง ดาวน์โหลดแบบ background ที่ทนการปิดแอป
-(เก็บ resume data ล้มกลางทางแล้วไปต่อ ไม่เริ่มใหม่) แตก zip คอมไพล์เป็น
-`.mlmodelc` แล้วลบไฟล์กลางทิ้ง พร้อมปุ่มยกเลิก/ลองใหม่/ลบโมเดล
+โมเดลต้องคอมไพล์ไว้ที่ `~/Library/Application Support/Model/` ก่อน:
 
-**สิ่งเดียวที่ยังต้องทำ** — ตั้งค่า `ModelDownloader.downloadBaseURL` (มี `// TODO`
-กำกับ) ให้ชี้ไปที่ที่โฮสต์ไฟล์สามตัวจาก `LLM/convert.py`
+```bash
+xcrun coremlcompiler compile LLM/Qwen-int8.mlpackage "$HOME/Library/Application Support/Model/"
+```
 
-1. อัปโหลด `Qwen-int8.mlpackage.zip`, `tokenizer.json`, `tokenizer_config.json`
-   ไว้ใต้ base เดียวกันแบบแบนราบ (HuggingFace repo ของตัวเองน่าจะง่ายสุด)
-   zip ต้องบีบจาก*นอก*โฟลเดอร์ ให้ใน archive มี `Qwen-int8.mlpackage/...`
-2. ตั้ง `downloadBaseURL` เป็น prefix สำหรับโหลดตรง ไม่มี `/` ปิดท้าย —
-   ของ HuggingFace คือ `https://huggingface.co/<user>/<repo>/resolve/main`
-3. เช็ก `approximateBytes` กับ `requiredDiskBytes` (ตอนนี้ 4.5 GB เผื่อช่วงที่
-   zip + mlpackage + mlmodelc อยู่พร้อมกัน) ให้ตรงกับไฟล์จริง
+## ปล่อยโมเดลรุ่นใหม่
 
-ก่อนตั้งค่า หน้าจอจะบอกว่ายังไม่ได้ตั้ง URL ไม่ใช่ปล่อยให้พังกลางคัน
+1. รัน `otherData/convert.py` บน Colab (เช็ก `QUANT_DTYPE` กับ `GRAPH_REV` ก่อน)
+2. เอา `.mlpackage` มาไว้ใน `LLM/` แล้วซิป **จากนอกโฟลเดอร์** ให้ใน archive มี
+   `Qwen-int8.mlpackage/...` เป็น root
+3. `hf upload Chakkrit25/calorieflow-qwen ./Qwen-int8.mlpackage.zip Qwen-int8.mlpackage.zip`
+4. อัปเดต `approximateBytes` ใน `ModelDownloader.assets` ให้ตรงขนาดไฟล์ใหม่
+
+`ModelDownloader.downloadBaseURL` ตั้งไว้แล้วที่
+`https://huggingface.co/Chakkrit25/calorieflow-qwen/resolve/main` ไม่ต้องแก้อีก
 
 **หมายเหตุเรื่อง zip** — iOS ไม่มี API สาธารณะสำหรับ *อ่าน* zip เลย
 (`NSFileCoordinator` เขียนได้อย่างเดียว ส่วน AppleArchive เป็นคนละฟอร์แมต) โค้ดจึง
 แกะ container เองแล้วส่งไบต์ดิบเข้า `Compression` ทดสอบกับ archive จริงสามแบบ
 (deflate / zip64 / stored) แล้วได้ผลตรงทุกไบต์
 
-### 3. รันบน simulator ได้แล้ว
+## simulator กับการแคปหน้าจอ
 
-หน้าแรกแสดงผลถูกต้อง ไอคอนกับ launch screen ติดครบ ที่ยังไม่ได้ดูคือหน้าอื่น ๆ
-เพราะ Xcode beta ตัวนี้ไม่ได้ติดตั้ง Simulator แบบ GUI มาด้วย มีแต่ `simctl`
-แบบ headless ซึ่งสั่งแตะหน้าจอไม่ได้ — เปิด Xcode กด Run จะเห็นครบ
+Xcode 27 beta **ไม่มี Simulator.app** มาให้แล้ว (เหลือ DeviceHub) และ `osascript`
+ก็ไม่ได้รับสิทธิ์ Accessibility/Screen Recording จึงสั่งแตะหน้าจอจาก shell ไม่ได้
+`simctl` ยังใช้ได้ครบ ยกเว้นการแตะ
 
-ที่ยังไม่ได้ทดสอบจริง: `CoreMLBackend` บนเครื่อง (แรมตอน inference, ความเร็ว ANE)
-และตัวดาวน์โหลดทั้งเส้น เพราะยังไม่มี URL
+ทางที่ใช้ได้จริงคือ **XCUITest ชั่วคราว** — เพิ่ม target, ให้เทสต์กดไล่ทุกหน้าแล้ว
+`add(XCTAttachment(screenshot:))`, ดึงภาพออกด้วย
+`xcrun xcresulttool export attachments --path <result>.xcresult --output-path <dir>`
+แล้วลบ target ทิ้ง ไม่ต้องขอสิทธิ์อะไรเลย (ชุดภาพใน `docs/screenshots/` ถ่ายด้วยวิธีนี้)
 
-### 4. งานเล็กที่ยังไม่ได้ทำ
-
-- ฟอนต์ Anuphan — ถ้าอยากให้ตรงกับเว็บเป๊ะ ต้องเพิ่ม `INFOPLIST_KEY_UIAppFonts`
+> **โมเดล Core ML รันบน simulator ไม่ได้** — Espresso ในตัว simulator ถูก build มา
+> โดยไม่มีเอนจิน MPSGraph จะได้ error `-14` ตอนสร้าง execution plan
+> ต้องทดสอบบนเครื่องจริงหรือผ่าน `/tmp/qwencheck` บนแมค
 
 ## ข้อตัดสินใจที่ตกลงกันไว้แล้ว (อย่ารื้อ)
 
-- **โฟลเดอร์ `LLM/` อยู่ที่ราก repo ไม่ใช่ใน `CalorieFlow/`** — `CalorieFlow/` เป็น
-  synchronized root group ของ target อะไรที่วางไว้ในนั้นจะถูกยัดเข้า `.app` อัตโนมัติ
-  ตอนที่โมเดลยังอยู่ในนั้น แอปบวมจาก 8 MB เป็น 2.9 GB
 - **ไม่ใช้ `NSLocalizedString`** — ใช้ตาราง `L10n` ส่งผ่าน environment key `\.l10n`
+  (ยกเว้นข้อความใน Info.plist เช่น `NSPhotoLibraryAddUsageDescription` ที่คุมไม่ได้)
 - **สีใน `Palette` เป็น dynamic `UIColor`** — ไม่อ่าน `@Environment(\.colorScheme)` ราย view
+- **ธีมคุมที่ `UIWindow.overrideUserInterfaceStyle` ไม่ใช่ `.preferredColorScheme`**
+  เพราะ `Palette` เป็น dynamic `UIColor` ที่ resolve จาก trait ของ UIKit
 - **การ์ดแชร์กับหน้า Wrapped ใช้สีคงที่** — เป็นภาพที่ส่งออกนอกแอป
 - **แถบแท็บวาดเอง ทับ `TabView` ที่ซ่อนแถบมาตรฐาน**
 - **ปุ่ม + เปิด `AddFoodView` เป็น sheet** ไม่ใช่แท็บ
@@ -145,8 +190,6 @@ embedding ไว้ที่ fp16 ช่วยภาษาที่ token ยา
 - **ไม่ใช้ชนิด `Float16` ใน Swift** — ไม่มีบน x86_64 ทำให้ build simulator บนแมค Intel พัง
   `CoreMLBackend` จึงจัดการบิต float16 เอง
 - **Gemini ใช้ไม่ได้** — closed weights ตัวที่เปิดคือ Gemma
-- **ธีมคุมที่ `UIWindow.overrideUserInterfaceStyle` ไม่ใช่ `.preferredColorScheme`**
-  เพราะ `Palette` เป็น dynamic `UIColor` ที่ resolve จาก trait ของ UIKit
 - **ภาษาเก็บเป็น `.system` ได้** — อย่ากลับไป resolve ครั้งเดียวตอนติดตั้งแล้วแช่ไว้
 - **launch screen เป็น storyboard** — Xcode เปิดให้ตั้งผ่าน `INFOPLIST_KEY_` แค่
   `UILaunchScreen_Generation` กับ `UILaunchStoryboardName` ส่วนสีพื้นหลังกับรูป
