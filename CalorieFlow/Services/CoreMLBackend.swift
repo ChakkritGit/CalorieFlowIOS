@@ -46,6 +46,25 @@ actor CoreMLBackend {
     /// ไม่ต้องไล่เช็กทีละตัว
     private let firstControlToken: Int
 
+    /// KV cache ที่ใช้ซ้ำทุกคำขอ
+    ///
+    /// เดิมเรียก `model.makeState()` ใหม่ทุกครั้งที่ตอบ ซึ่งจอง **66 MB ต่อคำขอ**
+    /// (28 ชั้น x 2 หัว x 2304 x 128 x 2 ไบต์ x สองก้อน k/v) ทับบนน้ำหนักโมเดล
+    /// 1.5 GB ที่อยู่ในแรมอยู่แล้ว ถามไม่กี่คำถามก็ถึงเพดานที่ระบบยอมให้แอปใช้
+    ///
+    /// **ใช้ซ้ำได้อย่างปลอดภัยเพราะ mask ปิดทุกช่องที่คำขอนี้ไม่ได้เขียน** — แต่ละคำขอ
+    /// เริ่มที่ตำแหน่ง 0 เสมอ เขียนไล่ตั้งแต่ 0 ถึง `past` แล้ว mask เปิดเฉพาะคอลัมน์
+    /// ที่ <= ตำแหน่งของแถวนั้น ค่าค้างจากคำขอก่อนจึงอยู่นอกช่วงที่อ่านทั้งหมด
+    /// ไม่ใช่การแลกความถูกต้องกับหน่วยความจำ
+    private var cachedState: MLState?
+
+    private func reusableState() -> MLState {
+        if let cachedState { return cachedState }
+        let fresh = model.makeState()
+        cachedState = fresh
+        return fresh
+    }
+
     /// backend ที่ให้ Core ML ใช้
     ///
     /// **ANE รันกราฟนี้ไม่ได้** — `MLModel.load` ล้มตั้งแต่สร้างแผนประมวลผล
@@ -149,17 +168,23 @@ actor CoreMLBackend {
         ModelStore.markInFlight()
         defer { ModelStore.clearInFlight() }
 
-        let state = model.makeState()
+        let state = reusableState()
 
         // prefill: ป้อน prompt เป็นก้อน ก้อนละไม่เกิน prefillChunk
         // logits ของก้อนสุดท้ายคือตัวที่ใช้เลือก token แรกของคำตอบ
+        //
+        // ห่อด้วย `autoreleasepool` เพราะ `MLMultiArray` กับบัฟเฟอร์ของ Metal ที่
+        // `predict` สร้างเป็น object ของ Objective-C ที่ถูก autorelease การวนหลายสิบ
+        // รอบในฟังก์ชันเดียวโดยไม่มี pool ทำให้ของพวกนี้กองสะสมจนจบคำตอบ
         var past = 0
         var logits: [Float] = []
         var cursor = tokens.startIndex
         while cursor < tokens.endIndex {
             let end = min(cursor + Self.prefillChunk, tokens.endIndex)
             let chunk = Array(tokens[cursor..<end])
-            logits = try predict(tokens: chunk, pastLength: past, state: state)
+            logits = try autoreleasepool {
+                try predict(tokens: chunk, pastLength: past, state: state)
+            }
             past += chunk.count
             cursor = end
         }
@@ -185,7 +210,9 @@ actor CoreMLBackend {
             guard past + 1 < Self.maxContext else { break }
 
             // decode: ป้อนทีละ token ที่เหลือ Core ML อ่านจาก state ให้เอง
-            logits = try predict(tokens: [next], pastLength: past, state: state)
+            logits = try autoreleasepool {
+                try predict(tokens: [next], pastLength: past, state: state)
+            }
             past += 1
         }
 
