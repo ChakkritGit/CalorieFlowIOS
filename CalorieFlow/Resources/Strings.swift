@@ -13,6 +13,15 @@ struct L10n {
 
     var locale: Locale { language.locale }
 
+    /// งบ token ของคำตอบ ปรับตามภาษาที่ใช้อยู่
+    ///
+    /// tokenizer ของ Qwen2.5 ตัดภาษาไทยละเอียดกว่าอังกฤษมาก ประโยคไทยที่ยาวเท่ากัน
+    /// กินจำนวน token ราวสองเท่า เพดานชุดเดียวจึงแปลว่าคำตอบภาษาไทยถูกตัดกลางคำ
+    /// ตั้งแต่ยังไม่จบประโยคแรก ขณะที่ภาษาอังกฤษได้ครบสองสามประโยคตามที่ prompt สั่ง
+    func answerBudget(_ english: Int) -> Int {
+        language == .thai ? Int(Double(english) * 2.2) : english
+    }
+
     // MARK: - Tabs
 
     var tabHome: String { s("หน้าหลัก", "Home") }

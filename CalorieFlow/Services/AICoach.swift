@@ -200,7 +200,7 @@ final class AICoach {
             to: prompt,
             instructions: t.aiSystemInstructions,
             fallback: fallback,
-            maxNewTokens: 70
+            maxNewTokens: t.answerBudget(70)
         )
         dailyTipCache = CachedAdvice(text: text, madeAt: Date(), fingerprint: fingerprint)
         return text
@@ -233,7 +233,7 @@ final class AICoach {
             to: prompt,
             instructions: t.aiSystemInstructions,
             fallback: fallback,
-            maxNewTokens: 90
+            maxNewTokens: t.answerBudget(90)
         )
         weeklySummaryCache = CachedAdvice(text: text, madeAt: Date(), fingerprint: fingerprint)
         return text
@@ -276,7 +276,7 @@ final class AICoach {
             let answer = try? await backend.respond(
                 instructions: t.aiSystemInstructions,
                 prompt: "\(t.aiPromptEstimateTask)\n\(t.aiPromptDishField): \(trimmed)",
-                maxNewTokens: 12
+                maxNewTokens: t.answerBudget(12)
             )
             if let digits = answer?.firstIntegerValue, (10...3000).contains(digits) {
                 return CalorieGuess(calories: digits, note: t.aiEstimateFromTable, fromModel: true)
@@ -365,7 +365,7 @@ final class AICoach {
                     instructions: instructions,
                     prompt: question,
                     // หน้าแชทผู้ใช้นั่งรออยู่ตรงหน้า ยาวกว่านี้คือรอนานขึ้นตรง ๆ
-                    maxNewTokens: 150
+                    maxNewTokens: t.answerBudget(150)
                 )
                 if !text.isEmpty {
                     chat.append(ChatMessage(role: .coach, text: text))
